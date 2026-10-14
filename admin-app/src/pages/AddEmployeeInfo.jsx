@@ -147,13 +147,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
         video: { width: 640, height: 480, facingMode: 'user' }
       });
       streamRef.current = stream;
+      setCameraActive(true);
+
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
-          setCameraActive(true);
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.muted = true;
+
+        const onReady = () => {
+          video.play().catch(e => console.log('Video play catch:', e));
           setScanStatus('Camera ready. Look directly into the lens and click "Capture Face & Photo".');
         };
+
+        video.onloadedmetadata = onReady;
+        if (video.readyState >= 1) {
+          onReady();
+        }
       }
     } catch (err) {
       console.error('Camera access error:', err);
@@ -585,20 +596,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
             {/* Live Camera Scanner Box */}
             <div className="md:col-span-2 space-y-4">
               <div className="relative rounded-2xl bg-slate-900 overflow-hidden min-h-[220px] flex items-center justify-center border border-slate-800">
-                {cameraActive ? (
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      className="w-full h-56 object-cover"
-                    />
-                    {/* Face alignment overlay guide */}
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div className="w-36 h-48 border-2 border-dashed border-emerald-400 rounded-full opacity-70 animate-pulse"></div>
-                    </div>
+                {/* Live Video - always mounted in DOM */}
+                <video
+                  ref={videoRef}
+                  playsInline
+                  autoPlay
+                  muted
+                  className={`w-full h-56 object-cover ${cameraActive ? 'block' : 'hidden'}`}
+                />
+
+                {/* Face alignment overlay guide */}
+                {cameraActive && (
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="w-36 h-48 border-2 border-dashed border-emerald-400 rounded-full opacity-70 animate-pulse"></div>
                   </div>
-                ) : (
+                )}
+
+                {/* Inactive state */}
+                {!cameraActive && (
                   <div className="p-8 text-center text-slate-400 space-y-2">
                     <Camera className="w-10 h-10 text-slate-500 mx-auto" />
                     <p className="text-xs text-slate-300 font-medium">Camera is currently turned off</p>
