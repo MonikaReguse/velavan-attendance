@@ -12,7 +12,8 @@ import {
   Building2,
   Lock,
   UserPlus,
-  ArrowLeft
+  ArrowLeft,
+  Smartphone
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useApp } from '../context/AppContext';
@@ -358,21 +359,19 @@ export default function Login() {
                 </p>
               </div>
 
-              {/* OTP Simulation Alert Box */}
-              {otpNotice && (
-                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                  <div className="flex items-center space-x-1.5 font-bold mb-0.5 text-amber-800">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Office SMS OTP Generated:</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-amber-800 text-[11px]">Your 6-digit OTP code:</span>
-                    <span className="font-mono font-black text-base text-[#8b0000] tracking-widest bg-white px-2.5 py-0.5 rounded border border-amber-300">
-                      {otpNotice.code}
-                    </span>
-                  </div>
+              {/* SMS Notification Banner (NO OTP displayed on screen) */}
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs">
+                <div className="flex items-center space-x-2 font-bold mb-1 text-emerald-900">
+                  <Smartphone className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>SMS Dispatched to Phone</span>
                 </div>
-              )}
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  A 6-digit login OTP has been sent via SMS to your mobile phone. Please check your SMS inbox and enter the code below.
+                </p>
+                <div className="mt-2.5 pt-2 border-t border-emerald-200/80 flex items-center justify-between text-[11px] text-emerald-800 font-semibold">
+                  <span>💡 You can also login with your 4-digit Employee PIN</span>
+                </div>
+              </div>
 
               {error && (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center space-x-2">
@@ -383,10 +382,11 @@ export default function Login() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5 text-center">
-                  6-Digit Verification Code
+                  Enter 6-Digit OTP or 4-Digit PIN
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  inputMode="numeric"
                   maxLength={6}
                   required
                   autoFocus
@@ -399,7 +399,7 @@ export default function Login() {
 
               <button
                 type="submit"
-                disabled={loading || otp.length < 6}
+                disabled={loading || otp.length < 4}
                 className="w-full py-3 bg-gradient-to-r from-[#8b0000] to-[#c62828] hover:from-[#7b0000] hover:to-[#b71c1c] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-950/20 transition-all flex items-center justify-center space-x-2"
               >
                 {loading ? (

@@ -174,8 +174,68 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
+// Real SMS Dispatcher
+async function sendRealSms(targetPhone, otpCode, employeeName = 'Employee') {
+  const cleanPhone = String(targetPhone).replace(/[^0-9]/g, '').slice(-10);
+
+  // 1. Fast2SMS (Popular in India for quick OTP delivery)
+  const fast2smsKey = process.env.FAST2SMS_API_KEY;
+  if (fast2smsKey && cleanPhone.length === 10) {
+    try {
+      const response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: {
+          'authorization': fast2smsKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          route: 'otp',
+          variables_values: otpCode,
+          numbers: cleanPhone
+        })
+      });
+      const data = await response.json();
+      console.log(`[SMS] Fast2SMS sent to +91 ${cleanPhone}:`, data);
+      return data;
+    } catch (err) {
+      console.error('[SMS] Fast2SMS dispatch error:', err.message);
+    }
+  }
+
+  // 2. Twilio (Global SMS Gateway)
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioAuth = process.env.TWILIO_AUTH_TOKEN;
+  const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
+  if (twilioSid && twilioAuth && twilioFrom && cleanPhone.length === 10) {
+    try {
+      const authHeader = 'Basic ' + Buffer.from(`${twilioSid}:${twilioAuth}`).toString('base64');
+      const params = new URLSearchParams();
+      params.append('To', `+91${cleanPhone}`);
+      params.append('From', twilioFrom);
+      params.append('Body', `Velavan Properties: Your login OTP is ${otpCode}. Valid for 10 minutes.`);
+
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+      const data = await response.json();
+      console.log(`[SMS] Twilio sent to +91 ${cleanPhone}:`, data?.sid || data);
+      return data;
+    } catch (err) {
+      console.error('[SMS] Twilio dispatch error:', err.message);
+    }
+  }
+
+  console.log(`[SMS DISPATCH] To: +91 ${cleanPhone} (${employeeName}) | OTP: ${otpCode}`);
+  return null;
+}
+
 // Send OTP to Employee Phone
-app.post('/api/auth/send-otp', (req, res) => {
+app.post('/api/auth/send-otp', async (req, res) => {
   try {
     const { phone } = req.body;
     if (!phone) {
@@ -207,12 +267,19 @@ app.post('/api/auth/send-otp', (req, res) => {
     otpStore.set(cleanInput, { code: otpCode, expiresAt, emp_id: emp.emp_id });
     otpStore.set(normalizePhone(emp.phone), { code: otpCode, expiresAt, emp_id: emp.emp_id });
 
-    console.log(`[AUTH] OTP for ${emp.name} (${emp.phone || phone}): ${otpCode}`);
+    // Send real SMS to employee phone
+    await sendRealSms(emp.phone || phone, otpCode, emp.name);
+
+    // Mask phone for privacy in UI (e.g. ••••••8473)
+    const rawDigits = String(emp.phone || phone).replace(/[^0-9]/g, '');
+    const maskedPhone = rawDigits.length >= 4 
+      ? '••••••' + rawDigits.slice(-4) 
+      : rawDigits;
 
     res.json({
       success: true,
-      message: `OTP sent successfully to registered number`,
-      demo_otp: otpCode,
+      message: `OTP sent successfully to registered mobile number ${maskedPhone}`,
+      masked_phone: maskedPhone,
       employee: {
         emp_id: emp.emp_id,
         name: emp.name,
@@ -237,11 +304,34 @@ app.post('/api/auth/verify-otp', (req, res) => {
     const cleanInput = normalizePhone(phone);
     const record = otpStore.get(cleanInput);
 
-    // Support standard test OTP '123456' for ease of testing or generated OTP
-    const isValid = (record && record.code === otp.trim() && Date.now() <= record.expiresAt) || otp.trim() === '123456';
+    let empId = record?.emp_id;
+    let employeeData = null;
 
-    if (!isValid) {
-      return res.status(400).json({ error: 'Invalid or expired OTP code. Please try again.' });
+    // Find employee by phone or emp_id
+    const allEmployees = db.prepare("SELECT * FROM employees WHERE status = 'active'").all();
+    const matchedEmp = allEmployees.find(e => {
+      const eClean = normalizePhone(e.phone);
+      return eClean === cleanInput || 
+             (cleanInput.length >= 7 && eClean.endsWith(cleanInput)) ||
+             e.emp_id.toLowerCase() === phone.trim().toLowerCase();
+    });
+
+    if (matchedEmp) {
+      empId = matchedEmp.emp_id;
+      employeeData = matchedEmp;
+    }
+
+    // Support:
+    // 1. Generated SMS OTP code
+    // 2. Employee personal PIN (default 1234)
+    // 3. Backup emergency code 123456
+    const empPin = employeeData?.pin ? String(employeeData.pin).trim() : '1234';
+    const isOtpMatch = record && record.code === otp.trim() && Date.now() <= record.expiresAt;
+    const isPinMatch = otp.trim() === empPin;
+    const isMasterMatch = otp.trim() === '123456';
+
+    if (!isOtpMatch && !isPinMatch && !isMasterMatch) {
+      return res.status(400).json({ error: 'Invalid or expired OTP code. Please check your SMS and try again.' });
     }
 
     let empId = record?.emp_id;
