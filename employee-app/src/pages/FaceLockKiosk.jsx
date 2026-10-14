@@ -39,6 +39,7 @@ export default function FaceLockKiosk() {
   const [punchModalData, setPunchModalData] = useState(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [isProcessingPunch, setIsProcessingPunch] = useState(false);
+  const [autoCloseCamera, setAutoCloseCamera] = useState(true);
 
   // References
   const videoRef = useRef(null);
@@ -144,6 +145,7 @@ export default function FaceLockKiosk() {
   // Continuous Face Scan Loop
   const startContinuousScan = () => {
     let lastScanTime = 0;
+    let isFrameRunning = false;
 
     const loop = async (timestamp) => {
       if (!videoRef.current || !canvasRef.current || videoRef.current.paused || videoRef.current.ended) {
@@ -151,10 +153,15 @@ export default function FaceLockKiosk() {
         return;
       }
 
-      // Throttle scanning to ~10 FPS for super smooth UI without overloading CPU
-      if (timestamp - lastScanTime > 120 && !isProcessingPunch) {
+      // Throttle scanning to fast 100ms cycles with frame concurrency guard
+      if (timestamp - lastScanTime > 100 && !isProcessingPunch && !isFrameRunning) {
         lastScanTime = timestamp;
-        await performScanCycle();
+        isFrameRunning = true;
+        try {
+          await performScanCycle();
+        } finally {
+          isFrameRunning = false;
+        }
       }
 
       animFrameRef.current = requestAnimationFrame(loop);
@@ -197,10 +204,10 @@ export default function FaceLockKiosk() {
           ctx.font = 'bold 13px sans-serif';
           ctx.fillText(` ${emp.name} (${matchResult.confidence}%)`, box.x + 4, box.y - 9);
 
-          // Check cooldown (5 seconds)
+          // Check cooldown (3 seconds)
           const now = Date.now();
           const lastPunch = recentPunchesCooldownRef.current.get(emp.emp_id) || 0;
-          if (now - lastPunch > 5000) {
+          if (now - lastPunch > 3000) {
             // Trigger automatic punch!
             handleFaceLockPunch(emp);
           }
@@ -249,8 +256,12 @@ export default function FaceLockKiosk() {
 
       if (res.status === 'success' || res.status === 'already_clocked_in') {
         playChime('success');
+        if (autoCloseCamera) {
+          stopCamera();
+        }
         setPunchModalData(res);
         fetchRecentPunches();
+        setScanStatus(`Attendance recorded for ${employee.name}! Camera closed.`);
       } else {
         playChime('error');
         alert(res.message || res.error || 'Attendance punch failed');
@@ -258,10 +269,10 @@ export default function FaceLockKiosk() {
     } catch (err) {
       console.error('Punch execution error:', err);
     } finally {
-      // Re-enable scanning after 3.5 seconds
+      // Fast re-enable scanning after 1 second
       setTimeout(() => {
         setIsProcessingPunch(false);
-      }, 3500);
+      }, 1000);
     }
   };
 
@@ -349,27 +360,29 @@ export default function FaceLockKiosk() {
               </div>
             )}
 
-            {/* Offline / Disabled view */}
+            {/* Offline / Standby view */}
             {!cameraActive && (
-              <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
-                <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 text-slate-500">
-                  <Camera className="w-8 h-8" />
+              <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-3">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg">
+                  <ScanFace className="w-8 h-8" />
                 </div>
-                <h4 className="text-white font-bold text-base mb-1">FaceLock Camera Offline</h4>
-                <p className="text-xs text-slate-400 max-w-sm mb-4">
-                  Please grant camera access or turn on the camera to begin marking attendance.
-                </p>
-                <div className="flex items-center space-x-3">
+                <div>
+                  <h4 className="text-white font-bold text-base">FaceLock Camera Standby</h4>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                    Click below to turn on the camera. Once your face is detected, attendance is recorded and camera closes automatically.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3 pt-1">
                   <button
                     onClick={startCamera}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg transition-colors flex items-center space-x-2"
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2"
                   >
                     <Camera className="w-4 h-4" />
-                    <span>Start Camera</span>
+                    <span>Turn On FaceLock Camera</span>
                   </button>
                   <button
                     onClick={() => setShowPinModal(true)}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl border border-slate-700 transition-colors"
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl border border-slate-700 transition-colors"
                   >
                     Use PIN Fallback
                   </button>
@@ -404,6 +417,17 @@ export default function FaceLockKiosk() {
             </div>
 
             <div className="flex items-center space-x-2 shrink-0 pl-3">
+              <button
+                onClick={() => setAutoCloseCamera(!autoCloseCamera)}
+                className={`px-2 py-1 rounded text-[11px] font-bold border transition-colors ${
+                  autoCloseCamera
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+                title="Auto-close camera immediately after face is recognized"
+              >
+                ⚡ Auto-Close: {autoCloseCamera ? 'ON' : 'OFF'}
+              </button>
               <span className="text-[11px] text-slate-500 font-mono">
                 {enrolledCount} enrolled
               </span>
@@ -412,14 +436,14 @@ export default function FaceLockKiosk() {
                   onClick={stopCamera}
                   className="text-[11px] text-slate-400 hover:text-white px-2 py-1 bg-slate-800 rounded border border-slate-700"
                 >
-                  Pause Camera
+                  Turn Off Camera
                 </button>
               ) : (
                 <button
                   onClick={startCamera}
                   className="text-[11px] text-emerald-400 hover:text-emerald-300 px-2 py-1 bg-emerald-950/60 rounded border border-emerald-800"
                 >
-                  Resume Camera
+                  Turn On Camera
                 </button>
               )}
             </div>
@@ -535,7 +559,13 @@ export default function FaceLockKiosk() {
       {punchModalData && (
         <PunchSuccessModal
           punchResult={punchModalData}
-          onClose={() => setPunchModalData(null)}
+          onClose={() => {
+            setPunchModalData(null);
+            setIsProcessingPunch(false);
+            if (autoCloseCamera) {
+              stopCamera();
+            }
+          }}
         />
       )}
 

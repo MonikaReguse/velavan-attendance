@@ -47,6 +47,7 @@ export default function OfficeFaceLockKiosk() {
   const [punchModalData, setPunchModalData] = useState(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [isProcessingPunch, setIsProcessingPunch] = useState(false);
+  const [autoCloseCamera, setAutoCloseCamera] = useState(true);
 
   // References
   const videoRef = useRef(null);
@@ -154,8 +155,15 @@ export default function OfficeFaceLockKiosk() {
 
   // Continuous Detection and Recognition Loop
   const startRecognitionLoop = () => {
+    let isFrameRunning = false;
+
     const loop = async () => {
       if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+        animFrameRef.current = requestAnimationFrame(loop);
+        return;
+      }
+
+      if (isProcessingPunch || isFrameRunning) {
         animFrameRef.current = requestAnimationFrame(loop);
         return;
       }
@@ -168,6 +176,7 @@ export default function OfficeFaceLockKiosk() {
         };
         faceapi.matchDimensions(canvasRef.current, displaySize);
 
+        isFrameRunning = true;
         try {
           const matchResult = await recognizeFace(videoRef.current);
           const ctx = canvasRef.current.getContext('2d');
@@ -190,9 +199,9 @@ export default function OfficeFaceLockKiosk() {
               ctx.fillText(`${matchResult.employee?.name || matchResult.emp_id} (${matchResult.confidence}%)`, box.x + 8, box.y - 8);
 
               setDetectedEmployee(matchResult.employee);
-              setScanStatus(`Identified: ${matchResult.employee?.name} (${matchResult.emp_id}) - Processing attendance...`);
+              setScanStatus(`Identified: ${matchResult.employee?.name} (${matchResult.emp_id}) - Punching attendance...`);
 
-              // Trigger punch if not in cooldown
+              // Trigger punch immediately
               handleEmployeeRecognized(matchResult.employee);
             } else {
               // Yellow box for unknown/unmatched face
@@ -215,6 +224,8 @@ export default function OfficeFaceLockKiosk() {
           }
         } catch (err) {
           // ignore transient frame detection errors
+        } finally {
+          isFrameRunning = false;
         }
       }
 
@@ -247,8 +258,8 @@ export default function OfficeFaceLockKiosk() {
     const now = Date.now();
     const lastPunchTime = recentPunchesCooldownRef.current.get(empId) || 0;
 
-    // 12-second cooldown to avoid duplicate consecutive punches
-    if (now - lastPunchTime < 12000) {
+    // Fast 3-second cooldown to avoid duplicate consecutive punches
+    if (now - lastPunchTime < 3000) {
       setScanStatus(`Attendance already verified for ${employee.name}. (Cooldown active)`);
       return;
     }
@@ -268,9 +279,12 @@ export default function OfficeFaceLockKiosk() {
 
       if (result.status === 'success' || result.status === 'already_clocked_in') {
         playChime('success');
+        if (autoCloseCamera) {
+          stopCamera();
+        }
         setPunchModalData(result);
         fetchAttendanceData();
-        setScanStatus(`Attendance recorded for ${employee.name}!`);
+        setScanStatus(`Attendance recorded for ${employee.name}! Camera closed.`);
       } else {
         playChime('error');
         setScanStatus(result.message || 'Error recording attendance');
@@ -282,7 +296,7 @@ export default function OfficeFaceLockKiosk() {
     } finally {
       setTimeout(() => {
         setIsProcessingPunch(false);
-      }, 3500);
+      }, 1000);
     }
   };
 
@@ -428,18 +442,33 @@ export default function OfficeFaceLockKiosk() {
                 </div>
               )}
 
-              {/* Camera Off / Loading State */}
+              {/* Camera Off / Standby State */}
               {(!cameraActive || modelLoading) && (
-                <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center space-y-3">
-                  <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-                  <p className="text-xs text-slate-300 font-semibold">{scanStatus}</p>
-                  {!cameraActive && (
-                    <button
-                      onClick={startCamera}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors"
-                    >
-                      Turn On Camera
-                    </button>
+                <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-4">
+                  {modelLoading ? (
+                    <>
+                      <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+                      <p className="text-xs text-slate-300 font-semibold">{scanStatus}</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-lg">
+                        <ScanFace className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-bold text-white">FaceLock Camera Standby</h4>
+                        <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                          Click below to turn on the camera. Once your face is detected, attendance is recorded and camera closes automatically.
+                        </p>
+                      </div>
+                      <button
+                        onClick={startCamera}
+                        className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-950/30 flex items-center space-x-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>Turn On FaceLock Camera</span>
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -472,14 +501,25 @@ export default function OfficeFaceLockKiosk() {
                 <span className="truncate">{scanStatus}</span>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                <button
+                  onClick={() => setAutoCloseCamera(!autoCloseCamera)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center space-x-1.5 ${
+                    autoCloseCamera 
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                  title="Auto-close camera immediately after face is recognized"
+                >
+                  <span>⚡ Auto-Close on Punch: {autoCloseCamera ? 'ON' : 'OFF'}</span>
+                </button>
                 <button
                   onClick={() => setShowPinModal(true)}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold flex items-center space-x-1.5 transition-colors border border-slate-700"
                   title="PIN punch fallback if camera cannot detect"
                 >
                   <Key className="w-3.5 h-3.5" />
-                  <span>PIN Punch Fallback</span>
+                  <span>PIN Fallback</span>
                 </button>
                 <button
                   onClick={cameraActive ? stopCamera : startCamera}
@@ -616,7 +656,13 @@ export default function OfficeFaceLockKiosk() {
       {punchModalData && (
         <PunchSuccessModal
           punchResult={punchModalData}
-          onClose={() => setPunchModalData(null)}
+          onClose={() => {
+            setPunchModalData(null);
+            setIsProcessingPunch(false);
+            if (autoCloseCamera) {
+              stopCamera();
+            }
+          }}
         />
       )}
 

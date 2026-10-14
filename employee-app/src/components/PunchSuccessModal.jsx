@@ -11,9 +11,10 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
       origin: { y: 0.5 }
     });
 
+    // Fast 1.2s auto-close
     const timer = setTimeout(() => {
       onClose();
-    }, 4500);
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [onClose]);
@@ -97,10 +98,18 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
           </div>
         </div>
 
-        {/* Closing note */}
-        <p className="text-[11px] text-slate-500 mt-4">
-          Have a productive day at the office! Window will auto-close in a few seconds.
-        </p>
+        {/* Fast Auto-Close Progress Bar */}
+        <div className="mt-4 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+          <div className="bg-emerald-400 h-full w-full animate-pulse"></div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-1.5"
+        >
+          <CheckCircle2 className="w-4 h-4" />
+          <span>Verified! Auto-closing in 1.2s...</span>
+        </button>
       </div>
     </div>
   );
