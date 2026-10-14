@@ -144,31 +144,27 @@ export default function AddEmployeeInfo({ setActiveTab }) {
     try {
       setScanStatus('Starting camera...');
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' }
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
       });
       streamRef.current = stream;
-      setCameraActive(true);
 
-      if (videoRef.current) {
-        const video = videoRef.current;
+      const video = videoRef.current;
+      if (video) {
         video.srcObject = stream;
         video.setAttribute('playsinline', 'true');
         video.setAttribute('webkit-playsinline', 'true');
         video.muted = true;
-
-        const onReady = () => {
-          video.play().catch(e => console.log('Video play catch:', e));
-          setScanStatus('Camera ready. Look directly into the lens and click "Capture Face & Photo".');
-        };
-
-        video.onloadedmetadata = onReady;
-        if (video.readyState >= 1) {
-          onReady();
+        try {
+          await video.play();
+        } catch (e) {
+          console.log('Play catch:', e);
         }
       }
+      setCameraActive(true);
+      setScanStatus('Camera active. Center your face and click "Capture Photo".');
     } catch (err) {
       console.error('Camera access error:', err);
-      setScanStatus('Could not access camera: ' + err.message);
+      setScanStatus('Could not access camera: ' + (err.message || 'Permission denied'));
       setCameraActive(false);
     }
   };
@@ -595,14 +591,14 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
             {/* Live Camera Scanner Box */}
             <div className="md:col-span-2 space-y-4">
-              <div className="relative rounded-2xl bg-slate-900 overflow-hidden min-h-[220px] flex items-center justify-center border border-slate-800">
-                {/* Live Video - always mounted in DOM */}
+              <div className="relative rounded-2xl bg-black overflow-hidden h-64 flex items-center justify-center border border-slate-800 shadow-inner">
+                {/* Live Video - always visible in layout so Safari decodes stream immediately */}
                 <video
                   ref={videoRef}
                   playsInline
                   autoPlay
                   muted
-                  className={`w-full h-56 object-cover ${cameraActive ? 'block' : 'hidden'}`}
+                  className="w-full h-full object-cover"
                 />
 
                 {/* Face alignment overlay guide */}
@@ -612,14 +608,26 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                   </div>
                 )}
 
-                {/* Inactive state */}
+                {/* Inactive Standby Overlay */}
                 {!cameraActive && (
-                  <div className="p-8 text-center text-slate-400 space-y-2">
-                    <Camera className="w-10 h-10 text-slate-500 mx-auto" />
-                    <p className="text-xs text-slate-300 font-medium">Camera is currently turned off</p>
-                    <p className="text-[11px] text-slate-500 max-w-sm">
-                      Start webcam to take a live photo and automatically enroll employee's 128-D facial recognition vector.
-                    </p>
+                  <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center space-y-3 z-10">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <Camera className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-white font-bold">Camera is currently turned off</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 max-w-xs">
+                        Start webcam to take a live photo and enroll employee face recognition vector.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center space-x-1.5"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Start Camera</span>
+                    </button>
                   </div>
                 )}
               </div>
