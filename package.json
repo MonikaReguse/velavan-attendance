@@ -1,0 +1,24 @@
+{
+  "name": "office-attendance-app",
+  "version": "1.0.0",
+  "description": "Two-App Office Attendance System with FaceLock AI Biometrics",
+  "scripts": {
+    "dev": "node start.js",
+    "start": "node server/index.js",
+    "build": "npm --prefix server install && npm --prefix admin-app install && npm --prefix admin-app run build && npm --prefix employee-app install && npm --prefix employee-app run build",
+    "build:admin": "npm --prefix admin-app run build",
+    "build:employee": "npm --prefix employee-app run build",
+    "seed": "node server/seed.js",
+    "server": "node server/index.js",
+    "admin": "npm --prefix admin-app run dev",
+    "employee": "npm --prefix employee-app run dev"
+  },
+  "keywords": [
+    "attendance",
+    "facelock",
+    "face-api",
+    "office-management"
+  ],
+  "author": "",
+  "license": "ISC"
+}
