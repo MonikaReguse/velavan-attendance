@@ -126,13 +126,23 @@ export default function OfficeFaceLockKiosk() {
       });
       streamRef.current = stream;
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.muted = true;
+
+        const onReady = () => {
+          video.play().catch(e => console.log('Video play catch:', e));
           setCameraActive(true);
-          setScanStatus('Camera online. Look into the lens to mark daily office attendance.');
+          setScanStatus('Scanning face... Look at the camera');
           startRecognitionLoop();
         };
+
+        video.onloadedmetadata = onReady;
+        if (video.readyState >= 1) {
+          onReady();
+        }
       }
     } catch (err) {
       console.error('Camera access error:', err);
@@ -156,9 +166,13 @@ export default function OfficeFaceLockKiosk() {
   // Continuous Detection and Recognition Loop
   const startRecognitionLoop = () => {
     let isFrameRunning = false;
+    let lastScanTime = 0;
 
-    const loop = async () => {
-      if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+    const loop = async (timestamp) => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+
+      if (!video || video.paused || video.ended) {
         animFrameRef.current = requestAnimationFrame(loop);
         return;
       }
@@ -168,64 +182,68 @@ export default function OfficeFaceLockKiosk() {
         return;
       }
 
-      // Draw overlay canvas
-      if (canvasRef.current && videoRef.current.videoWidth) {
-        const displaySize = {
-          width: videoRef.current.videoWidth,
-          height: videoRef.current.videoHeight
-        };
-        faceapi.matchDimensions(canvasRef.current, displaySize);
+      // Scan every 120ms to allow smooth rendering without overloading mobile browser
+      if (timestamp - lastScanTime > 120) {
+        lastScanTime = timestamp;
 
-        isFrameRunning = true;
-        try {
-          const matchResult = await recognizeFace(videoRef.current);
-          const ctx = canvasRef.current.getContext('2d');
-          ctx.clearRect(0, 0, displaySize.width, displaySize.height);
+        if (canvas && video.videoWidth > 0 && video.videoHeight > 0) {
+          isFrameRunning = true;
+          try {
+            const displaySize = {
+              width: video.videoWidth,
+              height: video.videoHeight
+            };
+            faceapi.matchDimensions(canvas, displaySize);
 
-          if (matchResult && matchResult.detection) {
-            const resizedDetection = faceapi.resizeResults(matchResult.detection, displaySize);
-            const box = resizedDetection.box;
+            const matchResult = await recognizeFace(video);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, displaySize.width, displaySize.height);
 
-            if (matchResult.matched) {
-              // Green target box for recognized staff
-              ctx.strokeStyle = '#10b981';
-              ctx.lineWidth = 4;
-              ctx.strokeRect(box.x, box.y, box.width, box.height);
+            if (matchResult && matchResult.detection) {
+              const resizedDetection = faceapi.resizeResults(matchResult.detection, displaySize);
+              const box = resizedDetection.box;
 
-              ctx.fillStyle = '#10b981';
-              ctx.fillRect(box.x, box.y - 28, box.width, 28);
-              ctx.fillStyle = '#ffffff';
-              ctx.font = 'bold 13px system-ui, sans-serif';
-              ctx.fillText(`${matchResult.employee?.name || matchResult.emp_id} (${matchResult.confidence}%)`, box.x + 8, box.y - 8);
+              if (matchResult.matched && matchResult.employee) {
+                // Green target box for recognized staff
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-              setDetectedEmployee(matchResult.employee);
-              setScanStatus(`Identified: ${matchResult.employee?.name} (${matchResult.emp_id}) - Punching attendance...`);
+                ctx.fillStyle = '#10b981';
+                ctx.fillRect(box.x, Math.max(0, box.y - 28), box.width, 28);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 13px system-ui, sans-serif';
+                ctx.fillText(`${matchResult.employee?.name || matchResult.emp_id} (${matchResult.confidence}%)`, box.x + 8, Math.max(18, box.y - 8));
 
-              // Trigger punch immediately
-              handleEmployeeRecognized(matchResult.employee);
+                setDetectedEmployee(matchResult.employee);
+                setScanStatus(`Identified: ${matchResult.employee?.name} - Recording attendance...`);
+
+                // Trigger punch immediately
+                handleEmployeeRecognized(matchResult.employee);
+              } else {
+                // Yellow box for unknown/unmatched face
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 2.5;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+                ctx.fillStyle = '#f59e0b';
+                ctx.fillRect(box.x, Math.max(0, box.y - 24), box.width, 24);
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 11px system-ui, sans-serif';
+                ctx.fillText('Aligning Face...', box.x + 6, Math.max(16, box.y - 7));
+
+                setDetectedEmployee(null);
+                setScanStatus('Face detected. Hold still facing camera...');
+              }
             } else {
-              // Yellow box for unknown/unmatched face
-              ctx.strokeStyle = '#f59e0b';
-              ctx.lineWidth = 2.5;
-              ctx.strokeRect(box.x, box.y, box.width, box.height);
-
-              ctx.fillStyle = '#f59e0b';
-              ctx.fillRect(box.x, box.y - 24, box.width, 24);
-              ctx.fillStyle = '#000000';
-              ctx.font = 'bold 11px system-ui, sans-serif';
-              ctx.fillText('Aligning Face...', box.x + 6, box.y - 7);
-
               setDetectedEmployee(null);
-              setScanStatus('Face detected. Hold still facing camera...');
+              setScanStatus('Align your face within the frame to clock in/out...');
             }
-          } else {
-            setDetectedEmployee(null);
-            setScanStatus('Look directly at the camera to check in/out...');
+          } catch (err) {
+            console.error('Scan loop error:', err);
+          } finally {
+            isFrameRunning = false;
           }
-        } catch (err) {
-          // ignore transient frame detection errors
-        } finally {
-          isFrameRunning = false;
         }
       }
 

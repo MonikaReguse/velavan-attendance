@@ -115,13 +115,23 @@ export default function FaceLockKiosk() {
       });
       streamRef.current = stream;
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.muted = true;
+
+        const onReady = () => {
+          video.play().catch(e => console.log('play catch', e));
           setCameraActive(true);
           setScanStatus('Camera active. Looking for faces...');
           startContinuousScan();
         };
+
+        video.onloadedmetadata = onReady;
+        if (video.readyState >= 1) {
+          onReady();
+        }
       }
     } catch (err) {
       console.error('Camera access failed:', err);

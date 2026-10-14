@@ -67,8 +67,10 @@ export function initializeFaceMatcher(enrolledEmployees, threshold = 0.55) {
     return null;
   }
 
-  currentMatcher = new faceapi.FaceMatcher(labeledDescriptors, threshold);
-  console.log(`FaceMatcher initialized with ${labeledDescriptors.length} enrolled faces (threshold: ${threshold})`);
+  // Distance threshold: 0.60 is standard optimal for mobile & webcam matching
+  const matchThreshold = Math.max(parseFloat(threshold) || 0.60, 0.60);
+  currentMatcher = new faceapi.FaceMatcher(labeledDescriptors, matchThreshold);
+  console.log(`FaceMatcher initialized with ${labeledDescriptors.length} enrolled faces (threshold: ${matchThreshold})`);
   return currentMatcher;
 }
 
@@ -81,11 +83,10 @@ export async function recognizeFace(video) {
   if (!modelsLoaded || !video) return null;
 
   try {
-    // Fast detection preset: 224 inputSize runs at 3x higher FPS with instant lock
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 });
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
     const result = await faceapi
       .detectSingleFace(video, options)
-      .withFaceLandmarks(true) // tiny landmarks for speed
+      .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!result) return null;
