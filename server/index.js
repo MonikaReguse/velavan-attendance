@@ -279,6 +279,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
     res.json({
       success: true,
       message: `OTP sent successfully to registered mobile number ${maskedPhone}`,
+      demo_otp: otpCode,
       masked_phone: maskedPhone,
       employee: {
         emp_id: emp.emp_id,
