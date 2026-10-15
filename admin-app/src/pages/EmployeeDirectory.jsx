@@ -38,6 +38,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { api } from '../services/api';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 const REQUIRED_DOCS = [
   { key: 'doc_aadhaar', label: 'Aadhaar Card', desc: 'Govt UIDAI identity card copy' },
@@ -432,9 +433,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
                       <td className="px-4 py-3.5">
                         <div className="flex items-center space-x-3">
                           <img
-                            src={emp.avatar || emp.doc_photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'}
+                            src={resolvePhotoUrl(emp.avatar || emp.doc_photo, emp.name)}
                             alt={emp.name}
-                            className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                            onError={(e) => handleImageError(e, emp.name)}
+                            className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"
                           />
                           <div>
                             <div className="font-bold text-slate-800 text-xs">
@@ -526,14 +528,25 @@ export default function EmployeeDirectory({ setActiveTab }) {
                       {/* FaceLock Status */}
                       <td className="px-4 py-3.5">
                         {hasFace ? (
-                          <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <button
+                            onClick={() => {
+                              try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
+                              setActiveTab('face-enrollment');
+                            }}
+                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 transition-colors shadow-2xs"
+                            title="Face Biometric Enrolled (Click to Re-Enroll or Update)"
+                          >
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             <span>Enrolled</span>
-                          </span>
+                          </button>
                         ) : (
                           <button
-                            onClick={() => setActiveTab('add-employee')}
-                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 transition-colors"
+                            onClick={() => {
+                              try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
+                              setActiveTab('face-enrollment');
+                            }}
+                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full border border-amber-200 transition-colors shadow-2xs"
+                            title="Enroll Staff Face Biometric"
                           >
                             <ScanFace className="w-3 h-3 text-amber-600" />
                             <span>Enroll Face</span>
@@ -591,9 +604,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
                   <div className="flex items-start justify-between mb-3">
                     <div className="relative">
                       <img
-                        src={emp.avatar || emp.doc_photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
+                        src={resolvePhotoUrl(emp.avatar || emp.doc_photo, emp.name)}
                         alt={emp.name}
-                        className="w-14 h-14 rounded-full object-cover border border-slate-200"
+                        onError={(e) => handleImageError(e, emp.name)}
+                        className="w-14 h-14 rounded-full object-cover border border-slate-200 bg-slate-100"
                       />
                       {hasFace && (
                         <span
@@ -1345,9 +1359,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
               <div className="flex items-center space-x-4">
                 <div className="relative">
                   <img
-                    src={viewingEmp.avatar || viewingEmp.doc_photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
+                    src={resolvePhotoUrl(viewingEmp.avatar || viewingEmp.doc_photo, viewingEmp.name)}
                     alt={viewingEmp.name}
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-200 shadow-sm"
+                    onError={(e) => handleImageError(e, viewingEmp.name)}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-200 shadow-sm bg-slate-100"
                   />
                   {viewingEmp.has_face_enrolled ? (
                     <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full p-1 border-2 border-white" title="FaceLock Enrolled">

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { CheckCircle2, Clock, Sparkles, X, ScanFace, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function PunchSuccessModal({ punchResult, onClose }) {
   useEffect(() => {
@@ -47,9 +48,10 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
         {/* Employee Avatar */}
         <div className="relative inline-block mx-auto mb-4">
           <img
-            src={attendance?.punch_photo || employee.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80'}
-            alt={employee.name}
-            className="w-24 h-24 rounded-full object-cover border-4 border-emerald-500 shadow-lg mx-auto"
+            src={resolvePhotoUrl(attendance?.punch_photo || employee?.avatar, employee?.name)}
+            alt={employee?.name}
+            onError={(e) => handleImageError(e, employee?.name)}
+            className="w-24 h-24 rounded-full object-cover border-4 border-emerald-500 shadow-lg mx-auto bg-slate-800"
           />
           <div className="absolute bottom-0 right-0 bg-emerald-500 text-black p-1.5 rounded-full border-2 border-slate-900">
             <ScanFace className="w-4 h-4" />

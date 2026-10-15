@@ -18,6 +18,7 @@ export default function Sidebar({ activeTab, setActiveTab, isMobileMenuOpen, set
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'facelock-kiosk', label: 'Office FaceLock Attendance', icon: ScanFace, live: true },
+    { id: 'face-enrollment', label: 'Face Biometric Enrollment', icon: ScanFace },
     { id: 'manual-attendance', label: 'Manual Attendance Update', icon: CalendarCheck },
     { id: 'add-employee', label: 'Add Employee Info', icon: UserPlus },
     { id: 'employees', label: 'Employee List', icon: Users },

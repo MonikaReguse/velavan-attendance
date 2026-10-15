@@ -23,6 +23,7 @@ import {
 } from '../services/faceRecognition';
 import PunchSuccessModal from '../components/PunchSuccessModal';
 import PinFallbackModal from '../components/PinFallbackModal';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function FaceLockKiosk() {
   const [modelReady, setModelReady] = useState(false);
@@ -47,6 +48,7 @@ export default function FaceLockKiosk() {
   const streamRef = useRef(null);
   const animFrameRef = useRef(null);
   const recentPunchesCooldownRef = useRef(new Map()); // emp_id -> timestamp
+  const consecutiveMatchRef = useRef({ empId: null, count: 0 });
 
   // Live Clock updater
   useEffect(() => {
@@ -198,6 +200,15 @@ export default function FaceLockKiosk() {
 
         if (matchResult.matched && matchResult.employee) {
           const emp = matchResult.employee;
+          const matchedEmpId = emp.emp_id;
+
+          // Track consecutive matching frames to prevent false matches
+          if (consecutiveMatchRef.current.empId === matchedEmpId) {
+            consecutiveMatchRef.current.count += 1;
+          } else {
+            consecutiveMatchRef.current = { empId: matchedEmpId, count: 1 };
+          }
+
           setDetectedEmployee(emp);
           setScanStatus(`Identified: ${emp.name} (${matchResult.confidence}% confidence)`);
 
@@ -214,14 +225,16 @@ export default function FaceLockKiosk() {
           ctx.font = 'bold 13px sans-serif';
           ctx.fillText(` ${emp.name} (${matchResult.confidence}%)`, box.x + 4, box.y - 9);
 
-          // Check cooldown (3 seconds)
+          // Check cooldown (3 seconds) and require 2 consecutive frames
           const now = Date.now();
           const lastPunch = recentPunchesCooldownRef.current.get(emp.emp_id) || 0;
-          if (now - lastPunch > 3000) {
+          if (now - lastPunch > 3000 && consecutiveMatchRef.current.count >= 2) {
+            consecutiveMatchRef.current = { empId: null, count: 0 };
             // Trigger automatic punch!
             handleFaceLockPunch(emp);
           }
         } else if (matchResult.reason === 'unknown_face') {
+          consecutiveMatchRef.current = { empId: null, count: 0 };
           setDetectedEmployee(null);
           setScanStatus('Face detected, but not recognized in employee directory.');
           // Draw amber box
@@ -231,6 +244,7 @@ export default function FaceLockKiosk() {
           ctx.strokeRect(box.x, box.y, box.width, box.height);
         }
       } else {
+        consecutiveMatchRef.current = { empId: null, count: 0 };
         setDetectedEmployee(null);
         setScanStatus('Align your face within the scanner frame to clock in/out.');
       }
@@ -268,6 +282,12 @@ export default function FaceLockKiosk() {
         playChime('success');
         if (autoCloseCamera) {
           stopCamera();
+        }
+        if (res.attendance && photoBase64) {
+          res.attendance.punch_photo = photoBase64;
+        }
+        if (!res.employee && employee) {
+          res.employee = employee;
         }
         setPunchModalData(res);
         fetchRecentPunches();
@@ -535,9 +555,10 @@ export default function FaceLockKiosk() {
                     >
                       <div className="flex items-center space-x-2.5">
                         <img
-                          src={p.punch_photo || p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=60&auto=format&fit=crop&q=80'}
+                          src={resolvePhotoUrl(p.punch_photo || p.avatar, p.employee_name)}
                           alt={p.employee_name}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-700"
+                          onError={(e) => handleImageError(e, p.employee_name)}
+                          className="w-8 h-8 rounded-full object-cover border border-slate-700 bg-slate-800"
                         />
                         <div>
                           <div className="font-bold text-white leading-tight">{p.employee_name}</div>

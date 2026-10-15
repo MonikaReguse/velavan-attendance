@@ -30,6 +30,7 @@ import {
 } from '../services/faceRecognition';
 import PunchSuccessModal from '../components/PunchSuccessModal';
 import PinFallbackModal from '../components/PinFallbackModal';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function OfficeFaceLockKiosk() {
   const [modelReady, setModelReady] = useState(false);
@@ -55,6 +56,7 @@ export default function OfficeFaceLockKiosk() {
   const streamRef = useRef(null);
   const animFrameRef = useRef(null);
   const recentPunchesCooldownRef = useRef(new Map()); // emp_id -> timestamp
+  const consecutiveMatchRef = useRef({ empId: null, count: 0 });
 
   // Live Clock updater
   useEffect(() => {
@@ -204,6 +206,15 @@ export default function OfficeFaceLockKiosk() {
               const box = resizedDetection.box;
 
               if (matchResult.matched && matchResult.employee) {
+                const matchedEmpId = matchResult.emp_id || matchResult.employee?.emp_id;
+
+                // Track consecutive frames matching this employee to avoid any false flickers
+                if (consecutiveMatchRef.current.empId === matchedEmpId) {
+                  consecutiveMatchRef.current.count += 1;
+                } else {
+                  consecutiveMatchRef.current = { empId: matchedEmpId, count: 1 };
+                }
+
                 // Green target box for recognized staff
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 4;
@@ -216,11 +227,17 @@ export default function OfficeFaceLockKiosk() {
                 ctx.fillText(`${matchResult.employee?.name || matchResult.emp_id} (${matchResult.confidence}%)`, box.x + 8, Math.max(18, box.y - 8));
 
                 setDetectedEmployee(matchResult.employee);
-                setScanStatus(`Identified: ${matchResult.employee?.name} - Recording attendance...`);
 
-                // Trigger punch immediately
-                handleEmployeeRecognized(matchResult.employee);
+                // Require at least 2 consecutive matching frames to confirm genuine employee
+                if (consecutiveMatchRef.current.count >= 2) {
+                  consecutiveMatchRef.current = { empId: null, count: 0 };
+                  setScanStatus(`Identified: ${matchResult.employee?.name} - Recording attendance...`);
+                  handleEmployeeRecognized(matchResult.employee);
+                } else {
+                  setScanStatus(`Verifying biometric identity: ${matchResult.employee?.name}...`);
+                }
               } else {
+                consecutiveMatchRef.current = { empId: null, count: 0 };
                 // Yellow box for unknown/unmatched face
                 ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2.5;
@@ -236,6 +253,7 @@ export default function OfficeFaceLockKiosk() {
                 setScanStatus('Face detected. Hold still facing camera...');
               }
             } else {
+              consecutiveMatchRef.current = { empId: null, count: 0 };
               setDetectedEmployee(null);
               setScanStatus('Align your face within the frame to clock in/out...');
             }
@@ -299,6 +317,12 @@ export default function OfficeFaceLockKiosk() {
         playChime('success');
         if (autoCloseCamera) {
           stopCamera();
+        }
+        if (result.attendance && snapshot) {
+          result.attendance.punch_photo = snapshot;
+        }
+        if (!result.employee && employee) {
+          result.employee = employee;
         }
         setPunchModalData(result);
         fetchAttendanceData();
@@ -496,9 +520,10 @@ export default function OfficeFaceLockKiosk() {
                 <div className="absolute bottom-3 left-3 right-3 bg-emerald-950/90 border border-emerald-500/80 rounded-xl p-2.5 flex items-center justify-between backdrop-blur-md animate-in fade-in">
                   <div className="flex items-center space-x-2.5">
                     <img
-                      src={detectedEmployee.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'}
+                      src={resolvePhotoUrl(detectedEmployee.avatar, detectedEmployee.name)}
                       alt={detectedEmployee.name}
-                      className="w-9 h-9 rounded-full object-cover border border-emerald-400"
+                      onError={(e) => handleImageError(e, detectedEmployee.name)}
+                      className="w-9 h-9 rounded-full object-cover border border-emerald-400 bg-slate-800"
                     />
                     <div>
                       <div className="font-bold text-xs text-white">{detectedEmployee.name}</div>
@@ -613,9 +638,10 @@ export default function OfficeFaceLockKiosk() {
                     >
                       <div className="flex items-center space-x-3">
                         <img
-                          src={item.punch_photo || item.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'}
+                          src={resolvePhotoUrl(item.punch_photo || item.avatar, item.name)}
                           alt={item.name}
-                          className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                          onError={(e) => handleImageError(e, item.name)}
+                          className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"
                         />
                         <div>
                           <div className="font-bold text-slate-800 leading-tight">

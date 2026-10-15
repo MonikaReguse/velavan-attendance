@@ -99,7 +99,7 @@ function initDb() {
     { key: 'grace_period_minutes', value: '10' },
     { key: 'ot_buffer_minutes', value: '20' },
     { key: 'half_day_threshold_hours', value: '4.5' },
-    { key: 'face_match_threshold', value: '0.55' },
+    { key: 'face_match_threshold', value: '0.45' },
     { key: 'allow_pin_fallback', value: 'true' }
   ];
 
@@ -117,6 +117,7 @@ function initDb() {
   db.prepare("UPDATE settings SET value = '18:00' WHERE key = 'office_end_time'").run();
   db.prepare("UPDATE settings SET value = '10' WHERE key = 'grace_period_minutes'").run();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ot_buffer_minutes', '20')").run();
+  db.prepare("UPDATE settings SET value = '0.45' WHERE key = 'face_match_threshold' AND CAST(value AS FLOAT) > 0.48").run();
 
   // Ensure uploads directory exists
   const uploadsDir = path.join(__dirname, 'uploads');

@@ -14,6 +14,7 @@ import {
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { loadFaceModels, getFaceDescriptor, faceapi } from '../services/faceService';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function FaceEnrollment() {
   const [employees, setEmployees] = useState([]);
@@ -45,6 +46,18 @@ export default function FaceEnrollment() {
     try {
       const data = await api.getEmployees();
       setEmployees(data);
+
+      // Support preselecting employee clicked from Employee Directory
+      const preselect = sessionStorage.getItem('enroll_emp_id');
+      if (preselect) {
+        sessionStorage.removeItem('enroll_emp_id');
+        const match = data.find(e => String(e.id) === preselect || String(e.emp_id) === preselect);
+        if (match) {
+          setSelectedEmployee(match);
+          return;
+        }
+      }
+
       if (!selectedEmployee && data.length > 0) {
         setSelectedEmployee(data[0]);
       } else if (selectedEmployee) {
@@ -325,9 +338,10 @@ export default function FaceEnrollment() {
                 >
                   <div className="flex items-center space-x-3">
                     <img
-                      src={emp.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                      src={resolvePhotoUrl(emp.avatar, emp.name)}
                       alt={emp.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                      onError={(e) => handleImageError(e, emp.name)}
+                      className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100"
                     />
                     <div>
                       <div className="text-xs font-bold text-slate-800">{emp.name}</div>
@@ -363,9 +377,10 @@ export default function FaceEnrollment() {
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <div className="flex items-center space-x-3.5">
                   <img
-                    src={selectedEmployee.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                    src={resolvePhotoUrl(selectedEmployee.avatar, selectedEmployee.name)}
                     alt={selectedEmployee.name}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-xs"
+                    onError={(e) => handleImageError(e, selectedEmployee.name)}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-xs bg-slate-100"
                   />
                   <div>
                     <div className="flex items-center space-x-2">

@@ -10,7 +10,7 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
     grace_period_minutes: '10',
     ot_buffer_minutes: '20',
     half_day_threshold_hours: '4.5',
-    face_match_threshold: '0.55',
+    face_match_threshold: '0.45',
     allow_pin_fallback: 'true',
     admin_username: 'admin',
     admin_password: 'admin123'
@@ -292,8 +292,8 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
               />
               <div className="flex justify-between text-[11px] text-slate-400 mt-1">
                 <span>0.40 (Extremely Strict)</span>
-                <span>0.55 (Recommended Office Default)</span>
-                <span>0.65 (Lenient / Higher Tolerance)</span>
+                <span>0.45 (Optimal Anti-False-Match Default)</span>
+                <span>0.55 (Lenient)</span>
               </div>
             </div>
 

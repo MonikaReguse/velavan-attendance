@@ -11,6 +11,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { api } from '../services/api';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(null);
@@ -205,9 +206,10 @@ export default function AdminDashboard({ setActiveTab }) {
                     <div className="flex items-center space-x-3">
                       <div className="relative">
                         <img
-                          src={rec.punch_photo || rec.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                          src={resolvePhotoUrl(rec.punch_photo || rec.avatar, rec.employee_name)}
                           alt={rec.employee_name}
-                          className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                          onError={(e) => handleImageError(e, rec.employee_name)}
+                          className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100"
                         />
                         {rec.method === 'facelock' && (
                           <div

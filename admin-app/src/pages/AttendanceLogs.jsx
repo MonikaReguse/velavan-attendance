@@ -12,6 +12,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { api } from '../services/api';
+import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function AttendanceLogs() {
   const [logs, setLogs] = useState([]);
@@ -239,9 +240,10 @@ export default function AttendanceLogs() {
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2.5">
                           <img
-                            src={log.punch_photo || log.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'}
+                            src={resolvePhotoUrl(log.punch_photo || log.avatar, log.employee_name)}
                             alt={log.employee_name}
-                            className="w-7 h-7 rounded-full object-cover border border-slate-200"
+                            onError={(e) => handleImageError(e, log.employee_name)}
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200 bg-slate-100"
                           />
                           <div>
                             <span className="font-bold text-slate-800">{log.employee_name}</span>

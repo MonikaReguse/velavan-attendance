@@ -9,6 +9,7 @@ import AttendanceLogs from './pages/AttendanceLogs';
 import AttendanceReports from './pages/AttendanceReports';
 import OfficeSettings from './pages/OfficeSettings';
 import ManualAttendanceUpdate from './pages/ManualAttendanceUpdate';
+import FaceEnrollment from './pages/FaceEnrollment';
 import AdminUnlockModal from './components/AdminUnlockModal';
 import { api } from './services/api';
 
@@ -142,6 +143,7 @@ export default function App() {
                 {activeTab === 'facelock-kiosk' && <OfficeFaceLockKiosk />}
                 {activeTab === 'manual-attendance' && <ManualAttendanceUpdate />}
                 {activeTab === 'dashboard' && <AdminDashboard setActiveTab={setActiveTab} />}
+                {activeTab === 'face-enrollment' && <FaceEnrollment />}
                 {activeTab === 'add-employee' && <AddEmployeeInfo setActiveTab={setActiveTab} />}
                 {activeTab === 'employees' && <EmployeeDirectory setActiveTab={setActiveTab} />}
                 {activeTab === 'attendance' && <AttendanceLogs />}

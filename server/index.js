@@ -759,33 +759,38 @@ app.post('/api/employees/:id/face-descriptor', (req, res) => {
 
     let avatarUrl = undefined;
     if (snapshotBase64) {
-      // Save snapshot file
-      const matches = snapshotBase64.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        const ext = matches[1].includes('png') ? 'png' : 'jpg';
-        const filename = `face_${req.params.id}_${Date.now()}.${ext}`;
-        const filePath = path.join(__dirname, 'uploads', filename);
-        fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
-        avatarUrl = `/uploads/${filename}`;
+      try {
+        const matches = snapshotBase64.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const ext = matches[1].includes('png') ? 'png' : 'jpg';
+          const filename = `face_${req.params.id}_${Date.now()}.${ext}`;
+          const filePath = path.join(__dirname, 'uploads', filename);
+          fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
+          avatarUrl = `/uploads/${filename}`;
+        }
+      } catch (fileErr) {
+        console.error('File write error for snapshot:', fileErr);
       }
     }
 
+    // Direct Base64 data URL is 100% self-contained and immune to missing filesystem files
+    const directAvatar = snapshotBase64 || avatarUrl;
     const now = new Date().toISOString();
-    if (avatarUrl) {
+    if (directAvatar) {
       db.prepare(`
         UPDATE employees 
-        SET face_descriptor = ?, face_enrolled_at = ?, avatar = ?
-        WHERE id = ?
-      `).run(JSON.stringify(descriptor), now, avatarUrl, req.params.id);
+        SET face_descriptor = ?, face_enrolled_at = ?, avatar = ?, doc_photo = COALESCE(doc_photo, ?)
+        WHERE id = ? OR emp_id = ?
+      `).run(JSON.stringify(descriptor), now, directAvatar, directAvatar, req.params.id, req.params.id);
     } else {
       db.prepare(`
         UPDATE employees 
         SET face_descriptor = ?, face_enrolled_at = ?
-        WHERE id = ?
-      `).run(JSON.stringify(descriptor), now, req.params.id);
+        WHERE id = ? OR emp_id = ?
+      `).run(JSON.stringify(descriptor), now, req.params.id, req.params.id);
     }
 
-    res.json({ success: true, message: 'Face biometric enrolled successfully', avatar: avatarUrl });
+    res.json({ success: true, message: 'Face biometric enrolled successfully', avatar: directAvatar });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -797,8 +802,8 @@ app.delete('/api/employees/:id/face-descriptor', (req, res) => {
     db.prepare(`
       UPDATE employees 
       SET face_descriptor = NULL, face_enrolled_at = NULL
-      WHERE id = ?
-    `).run(req.params.id);
+      WHERE id = ? OR emp_id = ?
+    `).run(req.params.id, req.params.id);
     res.json({ success: true, message: 'Face data removed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -829,13 +834,30 @@ app.post('/api/attendance/punch', (req, res) => {
     // Save snapshot if provided
     let punchPhotoUrl = null;
     if (photoBase64) {
-      const matches = photoBase64.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        const ext = matches[1].includes('png') ? 'png' : 'jpg';
-        const filename = `punch_${employee.emp_id}_${Date.now()}.${ext}`;
-        const filePath = path.join(__dirname, 'uploads', filename);
-        fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
-        punchPhotoUrl = `/uploads/${filename}`;
+      // Store Base64 data URL directly so image renders immediately with zero network dependency
+      punchPhotoUrl = photoBase64;
+
+      // Also auto-populate employee avatar if empty
+      if (!employee.avatar || String(employee.avatar).trim() === '') {
+        try {
+          db.prepare('UPDATE employees SET avatar = ? WHERE emp_id = ?').run(photoBase64, employee.emp_id);
+          employee.avatar = photoBase64;
+        } catch (avErr) {
+          console.error('Auto-avatar update error:', avErr);
+        }
+      }
+
+      // Try local file write for server disk archive
+      try {
+        const matches = photoBase64.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const ext = matches[1].includes('png') ? 'png' : 'jpg';
+          const filename = `punch_${employee.emp_id}_${Date.now()}.${ext}`;
+          const filePath = path.join(__dirname, 'uploads', filename);
+          fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
+        }
+      } catch (fileErr) {
+        console.error('Punch archive save error:', fileErr);
       }
     }
 

@@ -67,8 +67,9 @@ export function initializeFaceMatcher(enrolledEmployees, threshold = 0.55) {
     return null;
   }
 
-  // Distance threshold: 0.60 is standard optimal for mobile & webcam matching
-  const matchThreshold = Math.max(parseFloat(threshold) || 0.60, 0.60);
+  // Distance threshold: 0.45 is strict and optimal for 1-to-N face matching.
+  // Values >= 0.50 risk matching different people. Values <= 0.45 ensure distinct identity.
+  const matchThreshold = parseFloat(threshold) || 0.45;
   currentMatcher = new faceapi.FaceMatcher(labeledDescriptors, matchThreshold);
   console.log(`FaceMatcher initialized with ${labeledDescriptors.length} enrolled faces (threshold: ${matchThreshold})`);
   return currentMatcher;
@@ -102,7 +103,8 @@ export async function recognizeFace(video) {
 
     const bestMatch = currentMatcher.findBestMatch(result.descriptor);
 
-    if (bestMatch && bestMatch.label !== 'unknown') {
+    // Strictly ensure match label is known AND distance is within strict 0.45 threshold
+    if (bestMatch && bestMatch.label !== 'unknown' && bestMatch.distance <= 0.45) {
       const emp = enrolledEmployeesMap.get(bestMatch.label);
       return {
         matched: true,
