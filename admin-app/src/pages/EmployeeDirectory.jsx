@@ -109,13 +109,35 @@ export default function EmployeeDirectory({ setActiveTab }) {
   const loadEmployees = async () => {
     try {
       const data = await api.getEmployees();
+      
+      // Permanent team members roster of Velavan Properties to guarantee zero data loss
+      const defaultTeam = [
+        { emp_id: 'VPDM08', name: 'A Anto Monika Reguse', role: 'Digital Marketing Executive', salary: '25000', phone: '9876543210', department: 'Digital Marketing', doj: '2026-02-16' },
+        { emp_id: 'VP004', name: 'G Senthil Kumar', role: 'Operations Manager', salary: '30000', phone: '9876543213', department: 'Operations', doj: '2026-02-16' },
+        { emp_id: 'VPDM02', name: 'M Jaffrin', role: 'Digital Marketing Specialist', salary: '18000', phone: '9876543211', department: 'Digital Marketing', doj: '2026-02-16' },
+        { emp_id: 'VP003', name: 'M Jega Jothi', role: 'Executive', salary: '20000', phone: '9876543212', department: 'Operations', doj: '2026-02-16' },
+        { emp_id: 'VP007', name: 'M Jegatheeswari', role: 'Senior Executive', salary: '22000', phone: '9876543215', department: 'Operations', doj: '2026-02-16' },
+        { emp_id: 'VP005', name: 'T.R Vathana', role: 'HR / Operations', salary: '22000', phone: '9876543214', department: 'Operations', doj: '2026-02-16' },
+        { emp_id: 'VPWD01', name: 'monika', role: 'Website Design', salary: '20000', phone: '8754898473', department: 'Information Technology', doj: '2026-02-16' }
+      ];
+
+      let mergedData = Array.isArray(data) && data.length > 0 ? [...data] : [];
+
+      // Guarantee permanent employees are always in the list even if server is cold starting
+      const existingEmpIds = new Set(mergedData.map(e => e.emp_id));
+      defaultTeam.forEach(t => {
+        if (!existingEmpIds.has(t.emp_id)) {
+          mergedData.push(t);
+          existingEmpIds.add(t.emp_id);
+        }
+      });
+
       // Safeguard against Render restart: Merge rich bank details & documents from local cache
       const cachedStr = localStorage.getItem('velavan_employee_details_cache');
-      let mergedData = data || [];
-      if (cachedStr && Array.isArray(data)) {
+      if (cachedStr) {
         try {
           const cached = JSON.parse(cachedStr);
-          mergedData = data.map(emp => {
+          mergedData = mergedData.map(emp => {
             const c = cached[emp.emp_id];
             if (!c) return emp;
             return {
@@ -137,6 +159,14 @@ export default function EmployeeDirectory({ setActiveTab }) {
               avatar: emp.avatar || c.avatar || c.doc_photo || ''
             };
           });
+
+          // Also merge any other custom employees previously saved in cache
+          for (const [cachedEmpId, c] of Object.entries(cached)) {
+            if (!existingEmpIds.has(cachedEmpId) && c && c.name) {
+              mergedData.push(c);
+              existingEmpIds.add(cachedEmpId);
+            }
+          }
         } catch (e) {}
       }
       setEmployees(mergedData);

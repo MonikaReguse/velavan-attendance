@@ -360,9 +360,20 @@ export default function AddEmployeeInfo({ setActiveTab }) {
       const res = await api.createEmployee(payload);
 
       if (res.success || res.id) {
-        // Clear saved draft on successful database creation
+        // Clear saved draft and cache new employee profile
         try {
           localStorage.removeItem('velavan_employee_form_draft');
+          const cacheStr = localStorage.getItem('velavan_employee_details_cache') || '{}';
+          const cache = JSON.parse(cacheStr);
+          const assignedId = res.emp_id || finalEmpId;
+          if (assignedId) {
+            cache[assignedId] = {
+              ...payload,
+              emp_id: assignedId,
+              id: res.id
+            };
+            localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cache));
+          }
         } catch (e) {}
 
         setSuccessData({

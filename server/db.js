@@ -184,15 +184,16 @@ function initDb() {
   // Auto-seed Velavan Properties team members to ensure they NEVER disappear across server restarts
   const permanentEmployees = [
     {
-      emp_id: 'VPDM01',
+      emp_id: 'VPDM08',
       name: 'A Anto Monika Reguse',
-      email: 'vpdm01@velavanproperties.com',
+      email: 'vpdm08@velavanproperties.com',
       phone: '9876543210',
       department: 'Digital Marketing',
       role: 'Digital Marketing Executive',
       salary: '25000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VPDM02',
@@ -203,7 +204,8 @@ function initDb() {
       role: 'Digital Marketing Specialist',
       salary: '18000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VP003',
@@ -214,7 +216,8 @@ function initDb() {
       role: 'Executive',
       salary: '20000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VP004',
@@ -225,7 +228,8 @@ function initDb() {
       role: 'Operations Manager',
       salary: '30000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VP005',
@@ -236,7 +240,8 @@ function initDb() {
       role: 'HR / Operations',
       salary: '22000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VP007',
@@ -247,35 +252,47 @@ function initDb() {
       role: 'Senior Executive',
       salary: '22000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     },
     {
       emp_id: 'VPWD01',
       name: 'monika',
       email: 'monika@velavanproperties.com',
-      phone: '9876543216',
+      phone: '8754898473',
       department: 'Information Technology',
       role: 'Web Developer',
       salary: '20000',
       pin: '1234',
-      status: 'active'
+      status: 'active',
+      doj: '2026-02-16'
     }
   ];
 
-  const insertEmpStmt = db.prepare(`
-    INSERT OR IGNORE INTO employees (emp_id, name, email, phone, department, role, salary, pin, status)
-    VALUES (@emp_id, @name, @email, @phone, @department, @role, @salary, @pin, @status)
-  `);
-
   for (const emp of permanentEmployees) {
     try {
-      insertEmpStmt.run(emp);
-      db.prepare(`
-        UPDATE employees 
-        SET salary = @salary 
-        WHERE emp_id = @emp_id AND (salary IS NULL OR salary = '' OR salary = '0')
-      `).run(emp);
-    } catch (e) {}
+      const existing = db.prepare('SELECT id, emp_id, salary FROM employees WHERE emp_id = ? OR name = ?').get(emp.emp_id, emp.name);
+      if (!existing) {
+        db.prepare(`
+          INSERT INTO employees (emp_id, name, email, phone, department, role, salary, pin, status, doj, join_date)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(emp.emp_id, emp.name, emp.email, emp.phone, emp.department, emp.role, emp.salary, emp.pin, emp.status, emp.doj, emp.doj);
+        console.log(`[Auto-Seed] Permanent employee created: ${emp.name} (${emp.emp_id})`);
+      } else {
+        db.prepare(`
+          UPDATE employees 
+          SET emp_id = COALESCE(?, emp_id),
+              name = COALESCE(?, name),
+              role = COALESCE(?, role),
+              salary = CASE WHEN (salary IS NULL OR salary = '' OR salary = '0') THEN ? ELSE salary END,
+              department = COALESCE(?, department),
+              status = 'active'
+          WHERE id = ?
+        `).run(emp.emp_id, emp.name, emp.role, emp.salary, emp.department, existing.id);
+      }
+    } catch (e) {
+      console.error(`[Auto-Seed Error] for ${emp.name}:`, e.message);
+    }
   }
 
   // Pre-seed known historical attendance records (e.g. 2026-10-14 audit logs)
