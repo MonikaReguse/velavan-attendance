@@ -92,6 +92,11 @@ Click **`[ 🔐 Admin Login ]`** in the top navbar and enter `admin123` to acces
     - `09:35 AM` in $\rightarrow$ `06:20 PM` out = **0 mins (No OT)** *(Threshold is 6:25 PM)*
     - `09:35 AM` in $\rightarrow$ `06:25 PM` out = **25 mins OT**
 * **Payroll Standard**: Fixed **30 Days basis** for daily rate and minute rate calculations.
+* **🌟 100% Zero-Absent Double Salary Rule**:
+  - If an employee maintains **ZERO absences** (0 Absents, 0 Half-Days, and at least 1 working day present) throughout the entire month:
+  - The employee qualifies for **Double Salary**: They receive an extra **100% Base Salary Attendance Incentive Bonus**!
+  - `Net Monthly Salary = (Base Salary × 2) + Total Overtime Pay`.
+  - Example: An employee with Base Salary `₹25,000` who has zero absences earns `₹25,000` Base + `₹25,000` Bonus = `₹50,000` + Overtime Pay.
 
 ---
 

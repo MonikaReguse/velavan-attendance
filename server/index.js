@@ -1325,17 +1325,17 @@ app.put('/api/leaves/:id/status', (req, res) => {
   }
 });
 
-// CSV Export
+// CSV Export (Attendance Logs)
 app.get('/api/reports/export', (req, res) => {
   try {
     const { startDate, endDate, department } = req.query;
 
     let query = `
       SELECT 
-        a.date, a.emp_id, e.name as employee_name, e.department,
-        a.clock_in, a.clock_out, a.total_hours, a.status, a.method, a.notes
+        a.date, a.emp_id, COALESCE(e.name, a.emp_id) as employee_name, COALESCE(e.department, 'Operations') as department,
+        a.clock_in, a.clock_out, a.total_hours, COALESCE(a.ot_minutes, 0) as ot_minutes, a.status, a.method, a.notes
       FROM attendance a
-      JOIN employees e ON a.emp_id = e.emp_id
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
       WHERE 1=1
     `;
     const params = [];
@@ -1347,13 +1347,72 @@ app.get('/api/reports/export', (req, res) => {
 
     const records = db.prepare(query).all(...params);
 
-    let csv = 'Date,Employee ID,Employee Name,Department,Clock In,Clock Out,Total Hours,Status,Method,Notes\r\n';
+    let csv = 'Date,Employee ID,Employee Name,Department,Clock In,Clock Out,Total Hours,OT Minutes,Status,Method,Notes\r\n';
     for (const r of records) {
-      csv += `"${r.date}","${r.emp_id}","${r.employee_name}","${r.department}","${r.clock_in || ''}","${r.clock_out || ''}",${r.total_hours || 0},"${r.status}","${r.method}","${(r.notes || '').replace(/"/g, '""')}"\r\n`;
+      csv += `"${r.date}","${r.emp_id}","${r.employee_name}","${r.department}","${r.clock_in || ''}","${r.clock_out || ''}",${r.total_hours || 0},${r.ot_minutes || 0},"${r.status}","${r.method}","${(r.notes || '').replace(/"/g, '""')}"\r\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=attendance_report_${Date.now()}.csv`);
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Monthly Payroll & Zero-Absent Double Salary CSV Export
+app.get('/api/reports/payroll-export', (req, res) => {
+  try {
+    const { startDate, endDate, department } = req.query;
+
+    let empQuery = `SELECT * FROM employees WHERE status = 'active'`;
+    const empParams = [];
+    if (department) {
+      empQuery += ` AND department = ?`;
+      empParams.push(department);
+    }
+    empQuery += ` ORDER BY name ASC`;
+    const employees = db.prepare(empQuery).all(...empParams);
+
+    let attQuery = `SELECT emp_id, date, status, COALESCE(ot_minutes, 0) as ot_minutes FROM attendance WHERE 1=1`;
+    const attParams = [];
+    if (startDate) { attQuery += ' AND date >= ?'; attParams.push(startDate); }
+    if (endDate) { attQuery += ' AND date <= ?'; attParams.push(endDate); }
+    const attendanceRecords = db.prepare(attQuery).all(...attParams);
+
+    let csv = 'Employee ID,Employee Name,Department,Role,Base Salary (INR),Days Present,Days Absent,Half Days,OT Minutes,OT Pay (INR),Zero Absent Double Salary Qualified,Double Salary Bonus (INR),Estimated Net Payout (INR)\r\n';
+
+    for (const emp of employees) {
+      const records = attendanceRecords.filter(r => r.emp_id === emp.emp_id);
+      let present = 0;
+      let absent = 0;
+      let halfday = 0;
+      let otMinutes = 0;
+
+      for (const r of records) {
+        if (r.status === 'present' || r.status === 'late') present++;
+        else if (r.status === 'absent') absent++;
+        else if (r.status === 'half_day') halfday++;
+        if (r.ot_minutes) otMinutes += r.ot_minutes;
+      }
+
+      const baseSalary = Number(emp.salary || 20000);
+      const dailyRate = baseSalary / 30;
+      const otRatePerMin = (dailyRate / 510) * 1.5;
+      const otPay = Math.round(otMinutes * otRatePerMin);
+
+      const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
+      const earnedBase = Math.max(0, Math.round(baseSalary - deductions));
+
+      const isDoubleSalary = absent === 0 && halfday === 0 && present > 0;
+      const doubleBonus = isDoubleSalary ? baseSalary : 0;
+      const netPayout = earnedBase + doubleBonus + otPay;
+
+      csv += `"${emp.emp_id}","${emp.name}","${emp.department}","${emp.role}",${baseSalary},${present},${absent},${halfday},${otMinutes},${otPay},"${isDoubleSalary ? 'YES (Qualified 2x)' : 'NO'}",${doubleBonus},${netPayout}\r\n`;
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=velavan_payroll_report_${Date.now()}.csv`);
     res.send(csv);
   } catch (err) {
     res.status(500).json({ error: err.message });

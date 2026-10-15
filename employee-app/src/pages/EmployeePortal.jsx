@@ -271,11 +271,17 @@ export default function EmployeePortal() {
     // Earned Base Salary based on 30 days standard
     const earnedBasePay = Math.max(0, Math.round(baseMonthlySalary - totalDeductions));
 
+    // Zero-Absent Double Salary Incentive Rule:
+    // If employee has 0 Absents and 0 Half-Days in the month (with at least 1 day present),
+    // they qualify for 100% Attendance Double Salary (Extra 100% Base Salary bonus)!
+    const isDoubleSalaryEligible = summaryKpis.absent === 0 && summaryKpis.halfday === 0 && summaryKpis.present > 0;
+    const doubleSalaryBonus = isDoubleSalaryEligible ? baseMonthlySalary : 0;
+
     // Total Overtime Pay calculated in minutes:
     const totalOtPay = Math.round(summaryKpis.totalOtMinutes * otRatePerMinute);
 
-    // Net Total Salary for Month = Base Salary + Overtime Pay
-    const netTotalSalary = earnedBasePay + totalOtPay;
+    // Net Total Salary for Month = Earned Base + Double Salary Bonus + Overtime Pay
+    const netTotalSalary = earnedBasePay + doubleSalaryBonus + totalOtPay;
 
     return {
       payrollDays: PAYROLL_DAYS,
@@ -287,6 +293,8 @@ export default function EmployeePortal() {
       otRatePerMinute: Math.round(otRatePerMinute * 1000) / 1000,
       payableDays,
       earnedBasePay,
+      isDoubleSalaryEligible,
+      doubleSalaryBonus,
       totalOtMinutes: summaryKpis.totalOtMinutes,
       totalOtHours: summaryKpis.totalOtHours,
       totalOtPay,
@@ -510,9 +518,17 @@ export default function EmployeePortal() {
               </div>
               <div className="flex flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-500 mt-1 font-medium">
                 <span>Base: ₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}</span>
+                {salaryCalculation.isDoubleSalaryEligible && (
+                  <>
+                    <span>•</span>
+                    <span className="text-amber-900 font-bold bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
+                      🏆 2× Double Salary: +₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}
+                    </span>
+                  </>
+                )}
                 <span>•</span>
-                <span className="text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                  +₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')} Overtime ({summaryKpis.totalOtMinutes} mins)
+                <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  +₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')} OT ({summaryKpis.totalOtMinutes}m)
                 </span>
               </div>
             </div>
@@ -528,18 +544,54 @@ export default function EmployeePortal() {
           </div>
         </div>
 
-        {/* Salary Component Breakdown Grid */}
-        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5 mt-4 sm:mt-5">
-          {/* Base Allocated Salary */}
+        {/* 100% Zero-Absent Double Salary Incentive Banner */}
+        {salaryCalculation.isDoubleSalaryEligible ? (
+          <div className="relative z-10 mt-3 sm:mt-4 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-emerald-500/15 border-2 border-amber-400/60 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-md shrink-0">
+                🏆
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs sm:text-sm font-black text-amber-950 tracking-tight">
+                    100% Attendance Double Salary Bonus Activated!
+                  </h4>
+                  <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider shadow-2xs">
+                    2× Base Salary
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-amber-900 mt-0.5">
+                  Zero absences recorded for {selectedMonthLabel} ({summaryKpis.present} days present). You earned an extra 100% base salary incentive (+₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}) giving you 2× Double Salary (+ Overtime)!
+                </p>
+              </div>
+            </div>
+            <div className="bg-white/95 border border-amber-300 px-3.5 py-1.5 rounded-xl font-mono font-black text-amber-900 text-sm sm:text-base shrink-0 shadow-2xs">
+              +₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')} Bonus
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 mt-3 sm:mt-4 p-2.5 sm:p-3 rounded-2xl bg-slate-50/90 border border-slate-200 flex items-center justify-between text-xs text-slate-600">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="text-[11px] sm:text-xs">
+                <strong>Company Attendance Incentive:</strong> Zero absences in a calendar month qualifies for <strong>2× Double Salary</strong> (+100% Base Salary bonus). Currently: <strong className="text-rose-600">{summaryKpis.absent} Absent day(s)</strong> recorded.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Salary Component Breakdown Grid (5 Components: Base, Payable, 100% Bonus, OT Mins, OT Pay) */}
+        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5 mt-4 sm:mt-5">
+          {/* 1. Base Allocated Salary */}
           <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
-            <span className="text-[10px] text-slate-500 uppercase font-bold block truncate">1. Allocated Salary</span>
+            <span className="text-[10px] text-slate-500 uppercase font-bold block truncate">1. Base Salary</span>
             <div className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 sm:mt-1">
               ₹{baseMonthlySalary.toLocaleString('en-IN')}
             </div>
             <span className="text-[10px] text-[#8b0000] font-semibold truncate block">₹{salaryCalculation.dailyRate}/day (30 Days)</span>
           </div>
 
-          {/* Payable Days Earned */}
+          {/* 2. Payable Days Earned */}
           <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
             <span className="text-[10px] text-slate-500 uppercase font-bold block truncate">2. Payable Days</span>
             <div className="text-sm sm:text-lg font-black text-[#8b0000] font-mono mt-0.5 sm:mt-1">
@@ -550,18 +602,41 @@ export default function EmployeePortal() {
             </span>
           </div>
 
-          {/* Overtime Minutes */}
+          {/* 3. 100% Zero-Absent Double Salary Bonus */}
+          <div className={`p-3 sm:p-3.5 rounded-2xl border shadow-2xs ${
+            salaryCalculation.isDoubleSalaryEligible 
+              ? 'bg-amber-50/60 border-amber-300 ring-1 ring-amber-300/50' 
+              : 'bg-white border-slate-200'
+          }`}>
+            <span className={`text-[10px] uppercase font-bold block truncate ${
+              salaryCalculation.isDoubleSalaryEligible ? 'text-amber-800' : 'text-slate-500'
+            }`}>
+              3. Zero-Absent Bonus
+            </span>
+            <div className={`text-sm sm:text-lg font-black font-mono mt-0.5 sm:mt-1 ${
+              salaryCalculation.isDoubleSalaryEligible ? 'text-amber-700' : 'text-slate-400'
+            }`}>
+              {salaryCalculation.isDoubleSalaryEligible ? `+₹${salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}` : '₹0'}
+            </div>
+            <span className={`text-[10px] truncate block ${
+              salaryCalculation.isDoubleSalaryEligible ? 'text-amber-700 font-bold' : 'text-slate-400'
+            }`}>
+              {salaryCalculation.isDoubleSalaryEligible ? '🏆 2× Double Salary Active' : 'Requires 0 Absents'}
+            </span>
+          </div>
+
+          {/* 4. Overtime Minutes */}
           <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
-            <span className="text-[10px] text-amber-700 uppercase font-bold block truncate">3. Overtime Minutes (OT)</span>
+            <span className="text-[10px] text-amber-700 uppercase font-bold block truncate">4. OT Minutes</span>
             <div className="text-sm sm:text-lg font-black text-amber-700 font-mono mt-0.5 sm:mt-1">
               {summaryKpis.totalOtMinutes} mins
             </div>
             <span className="text-[10px] text-slate-500 truncate block">Past buffer (From 6:00 PM)</span>
           </div>
 
-          {/* Overtime Pay Added */}
+          {/* 5. Overtime Pay Added */}
           <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
-            <span className="text-[10px] text-amber-700 uppercase font-bold block truncate">4. Overtime Pay</span>
+            <span className="text-[10px] text-amber-700 uppercase font-bold block truncate">5. Overtime Pay</span>
             <div className="text-sm sm:text-lg font-black text-amber-700 font-mono mt-0.5 sm:mt-1">
               +₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')}
             </div>
@@ -574,7 +649,7 @@ export default function EmployeePortal() {
           <div className="mt-4 sm:mt-5 p-3.5 sm:p-4 rounded-2xl bg-white border border-red-200 text-xs text-slate-700 space-y-2 animate-in fade-in shadow-xs">
             <div className="font-bold text-[#8b0000] uppercase text-[11px] tracking-wider flex items-center space-x-1.5">
               <Info className="w-3.5 h-3.5 shrink-0" />
-              <span>Salary & Overtime Formula Breakdown (Minutes Basis)</span>
+              <span>Salary, Double Salary Incentive & Overtime Formula Breakdown</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px]">
               <div className="space-y-1">
@@ -585,7 +660,7 @@ export default function EmployeePortal() {
                 <p>• <strong>OT Rate per Minute (1.5x):</strong> ₹{salaryCalculation.minuteRate} × 1.5 = <strong>₹{salaryCalculation.otRatePerMinute} / min</strong></p>
               </div>
               <div className="space-y-1">
-                <p>• <strong>OT Minutes Rule:</strong> Stayed past 20-min buffer $\rightarrow$ OT calculates from 6:00 PM in minutes</p>
+                <p>• <strong>Zero-Absent Double Salary Rule:</strong> 0 Absents in Month $\rightarrow$ <strong>+100% Base Pay Bonus (2× Double Salary: +₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')})</strong></p>
                 <p>• <strong>Payable Days:</strong> 30 - {summaryKpis.absent} Absent - {summaryKpis.halfday * 0.5} Half-Days = <strong>{salaryCalculation.payableDays} days</strong></p>
                 <p>• <strong>Earned Base Pay:</strong> ₹{baseMonthlySalary} - Deductions = <strong>₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}</strong></p>
                 <p>• <strong>Total OT Minutes:</strong> <strong>{summaryKpis.totalOtMinutes} mins</strong> ({summaryKpis.overtimeDays} days)</p>
@@ -593,7 +668,7 @@ export default function EmployeePortal() {
               </div>
             </div>
             <div className="pt-2 border-t border-slate-200 text-[#8b0000] font-bold font-mono text-xs">
-              Net Total Salary = ₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')} + ₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')} = ₹{salaryCalculation.netTotalSalary.toLocaleString('en-IN')}
+              Net Total Salary = Base Pay (₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}) + Attendance Bonus (+₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}) + Overtime (+₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')}) = <strong>₹{salaryCalculation.netTotalSalary.toLocaleString('en-IN')}</strong>
             </div>
           </div>
         )}

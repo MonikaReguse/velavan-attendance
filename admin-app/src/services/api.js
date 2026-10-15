@@ -102,6 +102,10 @@ export const api = {
     const params = new URLSearchParams(filters).toString();
     return `${API_BASE}/reports/export?${params}`;
   },
+  getPayrollExportUrl: (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return `${API_BASE}/reports/payroll-export?${params}`;
+  },
   getBackup: () => fetch(`${API_BASE}/backup`).then(res => res.json()),
   restoreBackup: (backupData) =>
     fetch(`${API_BASE}/backup/restore`, {

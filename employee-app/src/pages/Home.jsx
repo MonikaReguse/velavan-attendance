@@ -369,6 +369,44 @@ export default function Home({ setActiveTab }) {
           </span>
         </div>
 
+        {/* Zero-Absent Double Salary Incentive Status Banner */}
+        {summaryKpis.absent === 0 && summaryKpis.halfday === 0 && summaryKpis.present > 0 ? (
+          <div className="mb-4 bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-emerald-500/20 border border-amber-400/50 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xl shadow-md shrink-0">
+                🏆
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-amber-300 font-bold text-sm">100% Attendance: Double Salary Active!</span>
+                  <span className="bg-amber-400/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-full border border-amber-400/30 uppercase font-black tracking-wider">
+                    2× Pay Qualified
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Zero absences recorded this month ({summaryKpis.present} days present). You qualify for an extra 100% base salary bonus!
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setActiveTab('attendance')}
+              className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all shrink-0 flex items-center space-x-1.5"
+            >
+              <span>View Payout Details</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="mb-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center space-x-2.5">
+              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Velavan Attendance Policy:</strong> Zero absences in a month unlocks <strong>2× Double Salary</strong>. Currently: <span className="text-rose-400 font-bold">{summaryKpis.absent} Absent</span>, <span className="text-blue-400 font-bold">{summaryKpis.halfday} Half-Day</span>.
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
           {/* 1. Present */}
           <div 

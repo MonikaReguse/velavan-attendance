@@ -108,7 +108,37 @@ export default function EmployeeDirectory({ setActiveTab }) {
   const loadEmployees = async () => {
     try {
       const data = await api.getEmployees();
-      setEmployees(data);
+      // Safeguard against Render restart: Merge rich bank details & documents from local cache
+      const cachedStr = localStorage.getItem('velavan_employee_details_cache');
+      let mergedData = data || [];
+      if (cachedStr && Array.isArray(data)) {
+        try {
+          const cached = JSON.parse(cachedStr);
+          mergedData = data.map(emp => {
+            const c = cached[emp.emp_id];
+            if (!c) return emp;
+            return {
+              ...emp,
+              bank_name: emp.bank_name || c.bank_name || '',
+              account_number: emp.account_number || c.account_number || '',
+              ifsc_code: emp.ifsc_code || c.ifsc_code || '',
+              account_holder_name: emp.account_holder_name || c.account_holder_name || '',
+              branch_name: emp.branch_name || c.branch_name || '',
+              pan_number: emp.pan_number || c.pan_number || '',
+              doc_aadhaar: emp.doc_aadhaar || c.doc_aadhaar || '',
+              doc_pan: emp.doc_pan || c.doc_pan || '',
+              doc_photo: emp.doc_photo || c.doc_photo || '',
+              doc_bank_passbook: emp.doc_bank_passbook || c.doc_bank_passbook || '',
+              doc_10th: emp.doc_10th || c.doc_10th || '',
+              doc_12th: emp.doc_12th || c.doc_12th || '',
+              doc_college: emp.doc_college || c.doc_college || '',
+              doc_marksheet: emp.doc_marksheet || c.doc_marksheet || '',
+              avatar: emp.avatar || c.avatar || c.doc_photo || ''
+            };
+          });
+        } catch (e) {}
+      }
+      setEmployees(mergedData);
     } catch (err) {
       console.error('Error loading employees:', err);
     }
@@ -236,16 +266,6 @@ export default function EmployeeDirectory({ setActiveTab }) {
       setEditTab('basic');
       return;
     }
-    if (!formData.aadhaar_number.trim()) {
-      setValidationError('Please enter Aadhaar Number.');
-      setEditTab('basic');
-      return;
-    }
-    if (!formData.address.trim()) {
-      setValidationError('Please enter Residential Address.');
-      setEditTab('basic');
-      return;
-    }
 
     try {
       setSaveLoading(true);
@@ -253,8 +273,18 @@ export default function EmployeeDirectory({ setActiveTab }) {
         ...formData,
         avatar: formData.doc_photo || formData.avatar || '',
         doc_photo: formData.doc_photo || formData.avatar || '',
-        account_holder_name: formData.account_holder_name.trim() || formData.name.trim()
+        account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
       };
+
+      // Safeguard against Render restart: Cache employee profile locally
+      try {
+        const cachedStr = localStorage.getItem('velavan_employee_details_cache');
+        const cached = cachedStr ? JSON.parse(cachedStr) : {};
+        if (formData.emp_id) {
+          cached[formData.emp_id] = { ...(cached[formData.emp_id] || {}), ...payload };
+          localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
+        }
+      } catch (e) {}
 
       if (editingEmp) {
         await api.updateEmployee(editingEmp.id, payload);
