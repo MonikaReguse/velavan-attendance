@@ -112,36 +112,32 @@ export default function EmployeeDirectory({ setActiveTab }) {
       try {
         data = await api.getEmployees();
       } catch (err) {
-        console.warn('Could not fetch employees from server, using fallback:', err);
+        console.warn('Could not fetch employees from server:', err);
       }
       
-      // Permanent team members roster of Velavan Properties to guarantee zero data loss
-      const defaultTeam = [
-        { id: 18, emp_id: 'VPDM08', name: 'A Anto Monika Reguse', role: 'Digital Marketing Executive', salary: '25000', phone: '9876543210', department: 'Digital Marketing', doj: '2026-02-16' },
-        { id: 21, emp_id: 'VP004', name: 'G Senthil Kumar', role: 'Operations Manager', salary: '30000', phone: '9876543213', department: 'Operations', doj: '2026-02-16' },
-        { id: 19, emp_id: 'VPDM02', name: 'M Jaffrin', role: 'Digital Marketing Specialist', salary: '18000', phone: '9876543211', department: 'Digital Marketing', doj: '2026-02-16' },
-        { id: 20, emp_id: 'VP003', name: 'M Jega Jothi', role: 'Executive', salary: '20000', phone: '9876543212', department: 'Operations', doj: '2026-02-16' },
-        { id: 23, emp_id: 'VP007', name: 'M Jegatheeswari', role: 'Senior Executive', salary: '22000', phone: '9876543215', department: 'Operations', doj: '2026-02-16' },
-        { id: 22, emp_id: 'VP005', name: 'T.R Vathana', role: 'HR / Operations', salary: '22000', phone: '9876543214', department: 'Operations', doj: '2026-02-16' },
-        { id: 17, emp_id: 'VPWD01', name: 'monika', role: 'Website Design', salary: '20000', phone: '8754898473', department: 'Information Technology', doj: '2026-02-16' }
-      ];
+      let mergedData = Array.isArray(data) ? [...data] : [];
 
-      let mergedData = Array.isArray(data) && data.length > 0 ? [...data] : [];
-
-      // Guarantee permanent employees are always in the list even if server is cold starting
-      const existingEmpIds = new Set(mergedData.map(e => e.emp_id));
-      defaultTeam.forEach(t => {
-        if (!existingEmpIds.has(t.emp_id)) {
-          mergedData.push(t);
-          existingEmpIds.add(t.emp_id);
+      // Check deleted IDs blacklist from localStorage
+      let deletedIds = new Set();
+      try {
+        const delStr = localStorage.getItem('velavan_deleted_ids');
+        if (delStr) {
+          deletedIds = new Set(JSON.parse(delStr));
         }
-      });
+      } catch (e) {}
+
+      // Filter out any employees that were deleted
+      if (deletedIds.size > 0) {
+        mergedData = mergedData.filter(e => !deletedIds.has(e.emp_id) && !deletedIds.has(String(e.id)));
+      }
 
       // Safeguard against Render restart: Merge user edits, rich bank details & documents from local cache
       const cachedStr = localStorage.getItem('velavan_employee_details_cache');
       if (cachedStr) {
         try {
           const cached = JSON.parse(cachedStr);
+          const DUMMY_IDS = new Set(['VPDM08', 'VP004', 'VPDM02', 'VP003', 'VP007', 'VP005', 'VPWD01', 'VPDM01']);
+
           mergedData = mergedData.map(emp => {
             const c = cached[emp.emp_id] || cached[String(emp.id)];
             if (!c) return emp;
@@ -176,9 +172,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
             };
           });
 
-          // Also merge any other custom employees previously saved in cache (e.g. 8th employee)
+          // Only merge newly created offline/in-progress employees if NOT deleted and NOT legacy dummy employees
+          const existingEmpIds = new Set(mergedData.map(e => e.emp_id));
           for (const [cachedEmpId, c] of Object.entries(cached)) {
-            if (!existingEmpIds.has(cachedEmpId) && c && c.name) {
+            if (!existingEmpIds.has(cachedEmpId) && !deletedIds.has(cachedEmpId) && !DUMMY_IDS.has(cachedEmpId) && c && c.name) {
               mergedData.push({
                 ...c,
                 id: c.id || cachedEmpId,
@@ -371,11 +368,13 @@ export default function EmployeeDirectory({ setActiveTab }) {
   };
 
   const handleDelete = async (emp) => {
-    if (!confirm(`Are you sure you want to remove ${emp.name}? This will also delete their attendance history.`)) {
+    if (!confirm(`Are you sure you want to remove ${emp.name}? This will permanently delete their profile and attendance records.`)) {
       return;
     }
     try {
-      await api.deleteEmployee(emp.id || emp.emp_id);
+      if (emp.id || emp.emp_id) {
+        await api.deleteEmployee(emp.id || emp.emp_id).catch(() => {});
+      }
       try {
         const cachedStr = localStorage.getItem('velavan_employee_details_cache');
         if (cachedStr) {
@@ -384,10 +383,33 @@ export default function EmployeeDirectory({ setActiveTab }) {
           if (emp.id) delete cached[String(emp.id)];
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
+        const delStr = localStorage.getItem('velavan_deleted_ids') || '[]';
+        const delList = JSON.parse(delStr);
+        if (emp.emp_id && !delList.includes(emp.emp_id)) delList.push(emp.emp_id);
+        if (emp.id && !delList.includes(String(emp.id))) delList.push(String(emp.id));
+        localStorage.setItem('velavan_deleted_ids', JSON.stringify(delList));
       } catch (e) {}
-      loadEmployees();
+      await loadEmployees();
     } catch (err) {
       alert('Error deleting employee: ' + err.message);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm('Are you sure you want to clear ALL employees from the directory? You can then add your new staff list.')) {
+      return;
+    }
+    try {
+      setSaveLoading(true);
+      await api.deleteAllEmployees().catch(() => {});
+      localStorage.removeItem('velavan_employee_details_cache');
+      const DUMMY_IDS = ['VPDM08', 'VP004', 'VPDM02', 'VP003', 'VP007', 'VP005', 'VPWD01', 'VPDM01'];
+      localStorage.setItem('velavan_deleted_ids', JSON.stringify(DUMMY_IDS));
+      setEmployees([]);
+    } catch (err) {
+      alert('Error clearing employee list: ' + err.message);
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -401,13 +423,25 @@ export default function EmployeeDirectory({ setActiveTab }) {
             Registered company staff directory showing Name, Job Designation, Date of Joining (DOJ), Salary Allocated, Bank Details & Verification Documents.
           </p>
         </div>
-        <button
-          onClick={() => setActiveTab('add-employee')}
-          className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors self-start sm:self-auto"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Add Employee Info</span>
-        </button>
+        <div className="flex items-center space-x-2 self-start sm:self-auto">
+          {employees.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="flex items-center space-x-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-3 py-2.5 rounded-lg shadow-2xs transition-colors"
+              title="Delete all current employees so you can add your new staff list"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Clear Staff List</span>
+            </button>
+          )}
+          <button
+            onClick={() => setActiveTab('add-employee')}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Add Employee Info</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters, Search & View Switcher */}

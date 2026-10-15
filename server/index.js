@@ -825,11 +825,23 @@ app.put('/api/employees/:id', (req, res) => {
   }
 });
 
+app.delete('/api/employees', (req, res) => {
+  try {
+    db.prepare('DELETE FROM attendance').run();
+    db.prepare('DELETE FROM leave_requests').run();
+    db.prepare('DELETE FROM employees').run();
+    res.json({ success: true, message: 'All employees and related records cleared' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/employees/:id', (req, res) => {
   try {
     const target = db.prepare('SELECT id, emp_id FROM employees WHERE id = ? OR emp_id = ?').get(req.params.id, req.params.id);
     if (target) {
       db.prepare('DELETE FROM attendance WHERE emp_id = ?').run(target.emp_id);
+      db.prepare('DELETE FROM leave_requests WHERE emp_id = ?').run(target.emp_id);
       db.prepare('DELETE FROM employees WHERE id = ?').run(target.id);
     }
     res.json({ success: true });

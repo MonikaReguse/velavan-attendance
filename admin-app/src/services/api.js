@@ -57,6 +57,14 @@ export const api = {
     }
     return json;
   },
+  deleteAllEmployees: async () => {
+    const res = await fetch(`${API_BASE}/employees`, { method: 'DELETE' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json.error || `Failed to delete all employees (HTTP ${res.status})`);
+    }
+    return json;
+  },
   uploadDocument: (base64, filename, docType) =>
     fetch(`${API_BASE}/upload-document`, {
       method: 'POST',

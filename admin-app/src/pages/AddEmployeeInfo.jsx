@@ -374,6 +374,12 @@ export default function AddEmployeeInfo({ setActiveTab }) {
             };
             localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cache));
           }
+          // Remove from deleted_ids if it was previously deleted
+          const delStr = localStorage.getItem('velavan_deleted_ids');
+          if (delStr) {
+            const delList = JSON.parse(delStr).filter(id => id !== assignedId && id !== String(res.id));
+            localStorage.setItem('velavan_deleted_ids', JSON.stringify(delList));
+          }
         } catch (e) {}
 
         setSuccessData({
