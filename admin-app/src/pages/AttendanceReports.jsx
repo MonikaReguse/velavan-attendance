@@ -100,10 +100,10 @@ export default function AttendanceReports() {
         if (r.ot_minutes > 0) otMinutes += r.ot_minutes;
       });
 
-      const baseSalary = Number(emp.salary || 20000);
-      const dailyRate = baseSalary / 30;
+      const baseSalary = Number(emp.salary || 0);
+      const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
       const shiftMinutes = 510;
-      const otRatePerMin = (dailyRate / shiftMinutes) * 1.5;
+      const otRatePerMin = dailyRate > 0 ? (dailyRate / shiftMinutes) * 1.5 : 0;
       const otPay = Math.round(otMinutes * otRatePerMin);
 
       const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);

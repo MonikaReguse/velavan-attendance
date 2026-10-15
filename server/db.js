@@ -255,7 +255,7 @@ function initDb() {
       phone: '9876543216',
       department: 'Information Technology',
       role: 'Web Developer',
-      salary: '25000',
+      salary: '20000',
       pin: '1234',
       status: 'active'
     }
@@ -269,6 +269,11 @@ function initDb() {
   for (const emp of permanentEmployees) {
     try {
       insertEmpStmt.run(emp);
+      db.prepare(`
+        UPDATE employees 
+        SET salary = @salary 
+        WHERE emp_id = @emp_id AND (salary IS NULL OR salary = '' OR salary = '0')
+      `).run(emp);
     } catch (e) {}
   }
 

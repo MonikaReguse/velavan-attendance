@@ -353,7 +353,7 @@ export default function ManualAttendanceUpdate() {
                 </select>
                 {currentEmployee && (
                   <span className="text-[10px] text-slate-500 mt-1 block">
-                    Dept: <strong>{currentEmployee.department}</strong> • Base Salary: <strong>₹{currentEmployee.salary || '25,000'}</strong>
+                    Dept: <strong>{currentEmployee.department}</strong> • Base Salary: <strong>{currentEmployee.salary ? `₹${Number(currentEmployee.salary).toLocaleString('en-IN')}` : 'Not Set'}</strong>
                   </span>
                 )}
               </div>

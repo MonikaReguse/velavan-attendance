@@ -32,7 +32,7 @@ import { useApp } from '../context/AppContext';
 import { api } from '../services/api';
 
 export default function EmployeePortal() {
-  const { activeEmployee, officeSettings } = useApp();
+  const { activeEmployee, employees, officeSettings } = useApp();
 
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -103,12 +103,15 @@ export default function EmployeePortal() {
     return months;
   }, []);
 
-  // Parse Base Monthly Salary
+  // Parse Base Monthly Salary strictly from Admin App entered data (NO hardcoded 25000 fallback!)
   const baseMonthlySalary = useMemo(() => {
-    if (!activeEmployee?.salary) return 25000;
-    const cleanNum = parseFloat(String(activeEmployee.salary).replace(/[^0-9.]/g, ''));
-    return !isNaN(cleanNum) && cleanNum > 0 ? cleanNum : 25000;
-  }, [activeEmployee]);
+    // Look up directly from freshly loaded employees list or activeEmployee
+    const currentEmp = (employees || []).find(e => e.emp_id === activeEmployee?.emp_id) || activeEmployee;
+    const rawSalary = currentEmp?.salary;
+    if (!rawSalary) return 0;
+    const cleanNum = parseFloat(String(rawSalary).replace(/[^0-9.]/g, ''));
+    return !isNaN(cleanNum) && cleanNum > 0 ? cleanNum : 0;
+  }, [activeEmployee, employees]);
 
   // Calculate Daily Records for the Selected Month
   const monthDailyRecords = useMemo(() => {
@@ -246,6 +249,29 @@ export default function EmployeePortal() {
   // Salary & Overtime Calculation (Standard 30 Days Payroll Basis, OT in Minutes)
   const salaryCalculation = useMemo(() => {
     const PAYROLL_DAYS = 30; // Salary calculated days = 30 days fixed standard
+
+    if (baseMonthlySalary <= 0) {
+      return {
+        payrollDays: PAYROLL_DAYS,
+        baseMonthlySalary: 0,
+        dailyRate: 0,
+        hourlyRate: 0,
+        minuteRate: 0,
+        otRatePerHour: 0,
+        otRatePerMinute: 0,
+        payableDays: 0,
+        earnedBasePay: 0,
+        isDoubleSalaryEligible: false,
+        doubleSalaryBonus: 0,
+        totalOtMinutes: summaryKpis.totalOtMinutes,
+        totalOtHours: summaryKpis.totalOtHours,
+        totalOtPay: 0,
+        absentDeduction: 0,
+        halfDayDeduction: 0,
+        totalDeductions: 0,
+        netTotalSalary: 0
+      };
+    }
 
     // Daily base rate = Base Salary / 30 days
     const dailyRate = baseMonthlySalary / PAYROLL_DAYS;
@@ -389,9 +415,11 @@ export default function EmployeePortal() {
               <div className="flex items-center space-x-1 sm:space-x-1.5 mt-0.5">
                 <IndianRupee className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
                 <span className="text-lg sm:text-2xl font-black text-amber-300 font-mono">
-                  {baseMonthlySalary.toLocaleString('en-IN')}
+                  {baseMonthlySalary > 0 ? baseMonthlySalary.toLocaleString('en-IN') : 'Not Set'}
                 </span>
-                <span className="text-xs text-red-100 font-medium">/ month</span>
+                <span className="text-xs text-red-100 font-medium">
+                  {baseMonthlySalary > 0 ? '/ month' : '(In Admin App)'}
+                </span>
               </div>
             </div>
 
@@ -586,9 +614,11 @@ export default function EmployeePortal() {
           <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
             <span className="text-[10px] text-slate-500 uppercase font-bold block truncate">1. Base Salary</span>
             <div className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 sm:mt-1">
-              ₹{baseMonthlySalary.toLocaleString('en-IN')}
+              {baseMonthlySalary > 0 ? `₹${baseMonthlySalary.toLocaleString('en-IN')}` : 'Not Set'}
             </div>
-            <span className="text-[10px] text-[#8b0000] font-semibold truncate block">₹{salaryCalculation.dailyRate}/day (30 Days)</span>
+            <span className="text-[10px] text-[#8b0000] font-semibold truncate block">
+              {baseMonthlySalary > 0 ? `₹${salaryCalculation.dailyRate}/day (30 Days)` : 'Set in Admin App'}
+            </span>
           </div>
 
           {/* 2. Payable Days Earned */}

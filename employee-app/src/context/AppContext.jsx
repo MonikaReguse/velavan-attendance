@@ -54,11 +54,14 @@ export function AppProvider({ children }) {
       const saved = localStorage.getItem('workpulse_authenticated_employee');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const refreshed = empList.find(e => e.emp_id === parsed.emp_id) || parsed;
+        const refreshed = (empList || []).find(e => e.emp_id === parsed.emp_id) || parsed;
         setActiveEmployee(refreshed);
         setIsAuthenticated(true);
+        try {
+          localStorage.setItem('workpulse_authenticated_employee', JSON.stringify(refreshed));
+        } catch (e) {}
 
-        const myToday = todayList.find(t => t.emp_id === refreshed.emp_id);
+        const myToday = (todayList || []).find(t => t.emp_id === refreshed.emp_id);
         setTodayRecord(myToday || null);
       } else {
         setIsAuthenticated(false);

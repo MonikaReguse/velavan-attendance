@@ -355,7 +355,10 @@ app.post('/api/auth/verify-otp', (req, res) => {
     const employee = db.prepare(`
       SELECT 
         id, emp_id, name, email, phone, department, role, pin, avatar,
-        status, join_date, face_enrolled_at, created_at,
+        status, join_date, doj, salary,
+        bank_name, account_number, ifsc_code, account_holder_name, branch_name, pan_number,
+        doc_aadhaar, doc_pan, doc_photo, doc_bank_passbook,
+        face_enrolled_at, created_at,
         CASE WHEN face_descriptor IS NOT NULL AND face_descriptor != '' THEN 1 ELSE 0 END as has_face_enrolled
       FROM employees 
       WHERE emp_id = ?
@@ -695,7 +698,7 @@ app.put('/api/employees/:id', (req, res) => {
           doc_marksheet = COALESCE(?, doc_marksheet),
           face_descriptor = COALESCE(?, face_descriptor),
           face_enrolled_at = COALESCE(?, face_enrolled_at)
-      WHERE id = ?
+      WHERE id = ? OR emp_id = ?
     `).run(
       val(name), val(email), val(phone), val(department), val(role), val(pin), val(avatar), val(status),
       val(doj), val(doj), val(emergency_phone), val(father_name), val(mother_name), val(spouse_name),
@@ -704,7 +707,7 @@ app.put('/api/employees/:id', (req, res) => {
       val(bank_name), val(account_number), val(ifsc_code), val(account_holder_name), val(branch_name), val(pan_number),
       val(doc_aadhaar), val(doc_pan), val(doc_photo), val(doc_bank_passbook),
       val(doc_10th), val(doc_12th), val(doc_college), val(doc_marksheet),
-      val(face_descriptor), val(faceEnrolledAt), req.params.id
+      val(face_descriptor), val(faceEnrolledAt), req.params.id, req.params.id
     );
     res.json({ success: true });
   } catch (err) {
@@ -1396,9 +1399,9 @@ app.get('/api/reports/payroll-export', (req, res) => {
         if (r.ot_minutes) otMinutes += r.ot_minutes;
       }
 
-      const baseSalary = Number(emp.salary || 20000);
-      const dailyRate = baseSalary / 30;
-      const otRatePerMin = (dailyRate / 510) * 1.5;
+      const baseSalary = Number(emp.salary || 0);
+      const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
+      const otRatePerMin = dailyRate > 0 ? (dailyRate / 510) * 1.5 : 0;
       const otPay = Math.round(otMinutes * otRatePerMin);
 
       const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
