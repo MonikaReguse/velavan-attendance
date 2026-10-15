@@ -1010,10 +1010,14 @@ app.get('/api/attendance/today', (req, res) => {
       SELECT 
         a.id, a.emp_id, a.date, a.clock_in, a.clock_out, a.total_hours,
         COALESCE(a.ot_hours, 0) as ot_hours,
+        COALESCE(a.ot_minutes, 0) as ot_minutes,
         a.status, a.punch_photo, a.method, a.notes, a.created_at,
-        e.name as employee_name, e.department, e.role, e.avatar, e.email
+        COALESCE(e.name, a.emp_id) as employee_name, 
+        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(e.role, 'Staff') as role, 
+        e.avatar, e.email
       FROM attendance a
-      JOIN employees e ON a.emp_id = e.emp_id
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
       WHERE a.date = ?
       ORDER BY a.clock_in DESC
     `).all(today);
@@ -1085,9 +1089,12 @@ app.get('/api/attendance/history', (req, res) => {
         COALESCE(a.ot_hours, 0) as ot_hours,
         COALESCE(a.ot_minutes, 0) as ot_minutes,
         a.status, a.punch_photo, a.method, a.notes,
-        e.name as employee_name, e.department, e.role, e.avatar
+        COALESCE(e.name, a.emp_id) as employee_name, 
+        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(e.role, 'Staff') as role, 
+        e.avatar
       FROM attendance a
-      JOIN employees e ON a.emp_id = e.emp_id
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
       WHERE 1=1
     `;
     const params = [];
@@ -1101,7 +1108,7 @@ app.get('/api/attendance/history', (req, res) => {
       params.push(endDate);
     }
     if (department) {
-      query += ' AND e.department = ?';
+      query += ' AND (e.department = ? OR e.department IS NULL)';
       params.push(department);
     }
     if (emp_id) {
@@ -1126,12 +1133,33 @@ app.get('/api/attendance/history', (req, res) => {
 app.post('/api/attendance/manual', (req, res) => {
   try {
     const { id, emp_id, date, clock_in, clock_out, status, notes, ot_minutes } = req.body;
+    if (!emp_id) {
+      return res.status(400).json({ error: 'Employee ID is required.' });
+    }
+
+    // Auto-create basic employee entry if missing, ensuring FOREIGN KEY constraint NEVER fails
+    const emp = db.prepare('SELECT id, emp_id, name FROM employees WHERE emp_id = ?').get(emp_id);
+    if (!emp) {
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO employees (emp_id, name, email, department, role, status)
+          VALUES (?, ?, ?, ?, ?, 'active')
+        `).run(
+          emp_id,
+          emp_id,
+          `${emp_id.toLowerCase()}@velavanproperties.com`,
+          'Operations',
+          'Staff'
+        );
+      } catch (e) {}
+    }
+
     const settings = getSettings();
     let totalHours = 0;
     let otHours = 0;
     let finalOtMinutes = 0;
 
-    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent';
+    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
     if (hasValidTimes) {
       totalHours = calculateHours(clock_in, clock_out);
       const ot = calculateOT(
@@ -1182,6 +1210,23 @@ app.put('/api/attendance/:id', (req, res) => {
   try {
     const { id } = req.params;
     const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes } = req.body;
+    if (emp_id) {
+      const emp = db.prepare('SELECT id, emp_id, name FROM employees WHERE emp_id = ?').get(emp_id);
+      if (!emp) {
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO employees (emp_id, name, email, department, role, status)
+            VALUES (?, ?, ?, ?, ?, 'active')
+          `).run(
+            emp_id,
+            emp_id,
+            `${emp_id.toLowerCase()}@velavanproperties.com`,
+            'Operations',
+            'Staff'
+          );
+        } catch (e) {}
+      }
+    }
     const settings = getSettings();
     let totalHours = 0;
     let otHours = 0;
@@ -1231,10 +1276,12 @@ app.get('/api/leaves', (req, res) => {
     let query = `
       SELECT 
         l.id, l.emp_id, l.type, l.start_date, l.end_date, l.days,
-        l.reason, l.status, l.admin_notes, l.created_at,
-        e.name as employee_name, e.department, e.role, e.avatar
+        COALESCE(e.name, l.emp_id) as employee_name, 
+        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(e.role, 'Staff') as role, 
+        e.avatar
       FROM leave_requests l
-      JOIN employees e ON l.emp_id = e.emp_id
+      LEFT JOIN employees e ON l.emp_id = e.emp_id
     `;
     const params = [];
     if (emp_id) {

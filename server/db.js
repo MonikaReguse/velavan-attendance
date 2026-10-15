@@ -5,9 +5,9 @@ const fs = require('fs');
 const dbPath = path.join(__dirname, 'attendance.db');
 const db = new Database(dbPath);
 
-// Enable foreign keys and WAL mode for better concurrency
+// WAL mode for better concurrency; foreign keys OFF to prevent crashes on orphan/manual logs
 db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+db.pragma('foreign_keys = OFF');
 
 function initDb() {
   db.exec(`
@@ -179,6 +179,122 @@ function initDb() {
   try {
     db.exec(`UPDATE attendance SET ot_minutes = CAST(ROUND(ot_hours * 60) AS INTEGER) WHERE (ot_minutes IS NULL OR ot_minutes = 0) AND ot_hours > 0`);
   } catch (e) {}
+
+  // Auto-seed Velavan Properties team members to ensure they NEVER disappear across server restarts
+  const permanentEmployees = [
+    {
+      emp_id: 'VPDM01',
+      name: 'A Anto Monika Reguse',
+      email: 'vpdm01@velavanproperties.com',
+      phone: '9876543210',
+      department: 'Digital Marketing',
+      role: 'Digital Marketing Executive',
+      salary: '25000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VPDM02',
+      name: 'M Jaffrin',
+      email: 'vpdm02@velavanproperties.com',
+      phone: '9876543211',
+      department: 'Digital Marketing',
+      role: 'Digital Marketing Specialist',
+      salary: '18000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VP003',
+      name: 'M Jega Jothi',
+      email: 'vp003@velavanproperties.com',
+      phone: '9876543212',
+      department: 'Operations',
+      role: 'Executive',
+      salary: '20000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VP004',
+      name: 'G Senthil Kumar',
+      email: 'vp004@velavanproperties.com',
+      phone: '9876543213',
+      department: 'Operations',
+      role: 'Operations Manager',
+      salary: '30000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VP005',
+      name: 'T.R Vathana',
+      email: 'vp005@velavanproperties.com',
+      phone: '9876543214',
+      department: 'Operations',
+      role: 'HR / Operations',
+      salary: '22000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VP007',
+      name: 'M Jegatheeswari',
+      email: 'vp007@velavanproperties.com',
+      phone: '9876543215',
+      department: 'Operations',
+      role: 'Senior Executive',
+      salary: '22000',
+      pin: '1234',
+      status: 'active'
+    },
+    {
+      emp_id: 'VPWD01',
+      name: 'monika',
+      email: 'monika@velavanproperties.com',
+      phone: '9876543216',
+      department: 'Information Technology',
+      role: 'Web Developer',
+      salary: '25000',
+      pin: '1234',
+      status: 'active'
+    }
+  ];
+
+  const insertEmpStmt = db.prepare(`
+    INSERT OR IGNORE INTO employees (emp_id, name, email, phone, department, role, salary, pin, status)
+    VALUES (@emp_id, @name, @email, @phone, @department, @role, @salary, @pin, @status)
+  `);
+
+  for (const emp of permanentEmployees) {
+    try {
+      insertEmpStmt.run(emp);
+    } catch (e) {}
+  }
+
+  // Pre-seed known historical attendance records (e.g. 2026-10-14 audit logs)
+  const permanentAttendance = [
+    { emp_id: 'VP004', date: '2026-10-14', clock_in: '09:55:00', clock_out: '18:18:00', total_hours: 8.38, ot_minutes: 0, status: 'present', method: 'manual', notes: 'Manual Entry' },
+    { emp_id: 'VP007', date: '2026-10-14', clock_in: '09:35:00', clock_out: '18:18:00', total_hours: 8.72, ot_minutes: 0, status: 'present', method: 'manual', notes: 'Manual Entry' },
+    { emp_id: 'VP005', date: '2026-10-14', clock_in: '09:32:00', clock_out: '18:17:00', total_hours: 8.75, ot_minutes: 0, status: 'present', method: 'manual', notes: 'Manual Entry' },
+    { emp_id: 'VPDM01', date: '2026-10-14', clock_in: '09:00:00', clock_out: '18:17:00', total_hours: 9.28, ot_minutes: 0, status: 'present', method: 'manual', notes: 'Manual Entry' },
+    { emp_id: 'VP003', date: '2026-10-14', clock_in: '09:50:00', clock_out: '18:05:00', total_hours: 8.25, ot_minutes: 0, status: 'present', method: 'manual', notes: 'Manual Entry' },
+    { emp_id: 'VPDM02', date: '2026-10-14', clock_in: '09:50:00', clock_out: '19:15:00', total_hours: 9.42, ot_minutes: 55, status: 'present', method: 'manual', notes: 'HR manual attendance entry' }
+  ];
+
+  const insertAttStmt = db.prepare(`
+    INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_minutes, status, method, notes)
+    VALUES (@emp_id, @date, @clock_in, @clock_out, @total_hours, @ot_minutes, @status, @method, @notes)
+  `);
+
+  for (const att of permanentAttendance) {
+    try {
+      const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
+      if (!exists) {
+        insertAttStmt.run(att);
+      }
+    } catch (e) {}
+  }
 
   console.log('Database initialized successfully.');
 }

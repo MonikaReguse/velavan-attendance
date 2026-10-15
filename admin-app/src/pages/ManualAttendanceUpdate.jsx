@@ -220,7 +220,12 @@ export default function ManualAttendanceUpdate() {
         const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
         setRecentLogs(updatedLogs || []);
       } else {
-        setFeedback({ type: 'error', message: res.error || 'Failed to save attendance' });
+        let msg = res.error || 'Failed to save attendance';
+        if (msg.includes('FOREIGN KEY')) {
+          msg = 'Employee record was refreshed in database. Please click "Save Attendance Record" again.';
+          loadData();
+        }
+        setFeedback({ type: 'error', message: msg });
       }
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Error communicating with attendance server' });
