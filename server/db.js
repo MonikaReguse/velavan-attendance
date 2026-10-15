@@ -89,14 +89,14 @@ function initDb() {
     );
   `);
 
-  // Default settings (9:30 AM start, 6:15 PM end, 15 min grace period -> late after 9:45 AM)
+  // Default settings (09:30 AM start, 18:00 end, 10 min grace period -> late arrival after 09:40 AM)
   const defaultSettings = [
     { key: 'office_name', value: 'Velavan Properties' },
     { key: 'admin_username', value: 'admin' },
     { key: 'admin_password', value: 'admin123' },
     { key: 'office_start_time', value: '09:30' },
     { key: 'office_end_time', value: '18:00' },
-    { key: 'grace_period_minutes', value: '15' },
+    { key: 'grace_period_minutes', value: '10' },
     { key: 'ot_buffer_minutes', value: '20' },
     { key: 'half_day_threshold_hours', value: '4.5' },
     { key: 'face_match_threshold', value: '0.55' },
@@ -115,7 +115,7 @@ function initDb() {
   db.prepare("UPDATE settings SET value = 'Velavan Properties' WHERE key = 'office_name'").run();
   db.prepare("UPDATE settings SET value = '09:30' WHERE key = 'office_start_time'").run();
   db.prepare("UPDATE settings SET value = '18:00' WHERE key = 'office_end_time'").run();
-  db.prepare("UPDATE settings SET value = '15' WHERE key = 'grace_period_minutes'").run();
+  db.prepare("UPDATE settings SET value = '10' WHERE key = 'grace_period_minutes'").run();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ot_buffer_minutes', '20')").run();
 
   // Ensure uploads directory exists

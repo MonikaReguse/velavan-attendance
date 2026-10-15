@@ -364,7 +364,7 @@ export default function OfficeFaceLockKiosk() {
             <AlertCircle className="w-4 h-4 text-amber-600" />
             <div>
               <span className="text-[10px] text-amber-700 block font-semibold leading-none">Late Arrival</span>
-              <span className="font-bold text-amber-900">After 09:45 AM</span>
+              <span className="font-bold text-amber-900">After 09:40 AM</span>
             </div>
           </div>
 
@@ -603,7 +603,7 @@ export default function OfficeFaceLockKiosk() {
                 </div>
               ) : (
                 todayPunches.map((item) => {
-                  const isLate = item.status === 'late' || (item.clock_in && item.clock_in > '09:45:00');
+                  const isLate = item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00');
                   const hasOt = item.ot_hours > 0;
 
                   return (

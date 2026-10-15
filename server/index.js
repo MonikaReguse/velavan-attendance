@@ -871,9 +871,9 @@ app.post('/api/attendance/punch', (req, res) => {
         });
       }
 
-      // Calculate status based on office start time + grace period (9:30 AM start + 15 min grace = after 9:45 AM Late Arrival)
+      // Calculate status based on office start time + grace period (09:30 AM start + 10 min grace = after 09:40 AM Late Arrival)
       const officeStart = settings.office_start_time || '09:30';
-      const graceMinutes = parseInt(settings.grace_period_minutes || '15', 10);
+      const graceMinutes = parseInt(settings.grace_period_minutes || '10', 10);
       
       const [startH, startM] = officeStart.split(':').map(Number);
       const graceTime = new Date(2000, 0, 1, startH, startM + graceMinutes, 0);
@@ -881,7 +881,7 @@ app.post('/api/attendance/punch', (req, res) => {
       const punchTime = new Date(2000, 0, 1, curH, curM, curS);
 
       const status = punchTime > graceTime ? 'late' : 'present';
-      const punchNote = notes || (status === 'late' ? 'Late arrival (Checked in after 9:45 AM)' : null);
+      const punchNote = notes || (status === 'late' ? 'Late arrival (Checked in after 09:40 AM)' : null);
 
       const insertStmt = db.prepare(`
         INSERT INTO attendance (emp_id, date, clock_in, status, punch_photo, method, notes)
@@ -902,7 +902,7 @@ app.post('/api/attendance/punch', (req, res) => {
       return res.json({
         status: 'success',
         action: 'clock_in',
-        message: status === 'late' ? 'Clocked In (Late Arrival - after 9:45 AM)' : 'Clocked In (On Time)',
+        message: status === 'late' ? 'Clocked In (Late Arrival - after 09:40 AM)' : 'Clocked In (On Time)',
         employee: {
           id: employee.id,
           emp_id: employee.emp_id,

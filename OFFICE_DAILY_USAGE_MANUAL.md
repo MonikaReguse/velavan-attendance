@@ -100,8 +100,8 @@ Click **`[ 🔐 Admin Login ]`** in the top navbar and enter `admin123` to acces
 1. **Morning (09:00 AM)**:
    - Reception staff opens **`https://velavan-attendance-cku9.vercel.app`** (or double-clicks `START_VELAVAN_ATTENDANCE.bat` on local PC).
    - Screen stays locked on the FaceLock terminal.
-2. **Check-In (09:15 – 09:45 AM)**:
-   - Employees look at the camera for 1 second. System punches Clock In.
+2. **Check-In (09:15 – 09:40 AM)**:
+   - Employees look at the camera for 1 second. System punches Clock In (Late arrival starts after 09:40 AM).
 3. **During the Day**:
    - Employees open **`https://velavan-attendance.vercel.app`** on their phones to view their status and earnings.
 4. **Check-Out (06:00 – 07:00 PM)**:

@@ -26,7 +26,7 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
 
   const { employee, attendance, action, message, status } = punchResult;
   const isClockIn = action === 'clock_in';
-  const isLate = attendance?.status === 'late' || (attendance?.clock_in && attendance.clock_in > '09:45:00');
+  const isLate = attendance?.status === 'late' || (attendance?.clock_in && attendance.clock_in > '09:40:00');
   const hasOt = attendance?.ot_hours > 0;
 
   return (
@@ -113,7 +113,7 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
           {isClockIn && isLate && (
             <p className="text-amber-300 font-medium flex items-center space-x-1">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>Morning arrival after 9:45 AM marked as Late Arrival.</span>
+              <span>Morning arrival after 09:40 AM marked as Late Arrival.</span>
             </p>
           )}
           {!isClockIn && hasOt && (

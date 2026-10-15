@@ -175,7 +175,7 @@ export default function EmployeePortal() {
       } else if (hist) {
         if (hist.status === 'half_day') {
           status = 'Half-Day';
-        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in > '09:45:00')) {
+        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in > '09:40:00')) {
           status = 'Late Arrival';
         } else {
           status = 'Present';
@@ -879,7 +879,7 @@ export default function EmployeePortal() {
                         <div>
                           <span className="text-[10px] text-slate-400 block font-medium">Clock In</span>
                           <span className={`font-mono font-bold text-xs ${
-                            r.clockIn !== '--' ? (r.clockIn > '09:45:00' ? 'text-amber-700' : 'text-emerald-700') : 'text-slate-400'
+                            r.clockIn !== '--' ? (r.clockIn > '09:40:00' ? 'text-amber-700' : 'text-emerald-700') : 'text-slate-400'
                           }`}>
                             {r.clockIn}
                           </span>
@@ -1020,7 +1020,7 @@ export default function EmployeePortal() {
                         {/* Clock In */}
                         <td className="px-4 py-3 text-slate-800">
                           {r.clockIn !== '--' ? (
-                            <span className={r.clockIn > '09:45:00' ? 'text-amber-700 font-bold' : 'text-emerald-700 font-semibold'}>
+                            <span className={r.clockIn > '09:40:00' ? 'text-amber-700 font-bold' : 'text-emerald-700 font-semibold'}>
                               {r.clockIn}
                             </span>
                           ) : (

@@ -7,7 +7,7 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
     office_name: 'Velavan Properties',
     office_start_time: '09:30',
     office_end_time: '18:00',
-    grace_period_minutes: '15',
+    grace_period_minutes: '10',
     ot_buffer_minutes: '20',
     half_day_threshold_hours: '4.5',
     face_match_threshold: '0.55',
@@ -242,7 +242,7 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
               />
               <p className="text-[11px] text-amber-600 font-medium mt-1">
-                15 mins grace period: Clocking in after 09:45 AM will be flagged as "Late Arrival".
+                10 mins grace period: Clocking in after 09:40 AM will be flagged as "Late Arrival".
               </p>
             </div>
 

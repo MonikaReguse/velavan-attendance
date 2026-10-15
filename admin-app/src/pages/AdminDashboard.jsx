@@ -75,7 +75,7 @@ export default function AdminDashboard({ setActiveTab }) {
               Daily Office FaceLock Attendance
             </h3>
             <p className="text-xs text-red-100 max-w-xl mt-1">
-              Employees daily come to office and mark attendance here using FaceLock. Shift: 09:30 AM – 06:00 PM (Late arrival after 09:45 AM, OT from 6:00 PM after 20-min buffer).
+              Employees daily come to office and mark attendance here using FaceLock. Shift: 09:30 AM – 06:00 PM (Late arrival after 09:40 AM, OT from 6:00 PM after 20-min buffer).
             </p>
           </div>
         </div>
@@ -171,7 +171,7 @@ export default function AdminDashboard({ setActiveTab }) {
             </div>
           </div>
           <div className="text-3xl font-black text-amber-600">{summary?.late_today || 0}</div>
-          <span className="text-[11px] text-amber-600 font-semibold">Checked in after 9:45 AM</span>
+          <span className="text-[11px] text-amber-600 font-semibold">Checked in after 09:40 AM</span>
         </div>
       </div>
 

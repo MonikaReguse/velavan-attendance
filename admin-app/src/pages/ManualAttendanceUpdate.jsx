@@ -108,7 +108,7 @@ export default function ManualAttendanceUpdate() {
       otMinutes = Number(customOtMinutes);
     }
 
-    return { totalHours, otMinutes, previewStatus: inM > 585 ? 'late' : status };
+    return { totalHours, otMinutes, previewStatus: inM > 580 ? 'late' : status };
   }, [clockIn, clockOut, status, customOtMinutes]);
 
   // Quick Preset Handlers

@@ -131,10 +131,10 @@ export default function Home({ setActiveTab }) {
           }
         }
 
-        // Late arrival mention: morning after 9:45 AM
+        // Late arrival mention: morning after 09:40 AM
         if (hist.status === 'half_day') {
           status = 'Half-Day';
-        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in > '09:45:00')) {
+        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in > '09:40:00')) {
           status = 'Late Arrival';
         } else {
           status = 'Present';
