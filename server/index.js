@@ -335,7 +335,9 @@ app.post('/api/auth/verify-otp', (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired OTP code. Please check your SMS and try again.' });
     }
 
-    let empId = record?.emp_id;
+    if (!empId) {
+      empId = record?.emp_id;
+    }
     if (!empId) {
       // Find employee by phone
       const allEmployees = db.prepare("SELECT * FROM employees WHERE status = 'active'").all();
@@ -618,7 +620,8 @@ app.post('/api/employees', (req, res) => {
       face_descriptor || null,
       faceEnrolledAt
     );
-    res.status(201).json({ id: result.lastInsertRowid, emp_id: actualEmpId, success: true });
+    const createdEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ id: result.lastInsertRowid, emp_id: actualEmpId, employee: createdEmp, success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -627,6 +630,7 @@ app.post('/api/employees', (req, res) => {
 app.put('/api/employees/:id', (req, res) => {
   try {
     const { 
+      emp_id,
       name, email, phone, department, role, pin, avatar, status,
       doj, emergency_phone, father_name, mother_name, spouse_name,
       gender, dob, blood_group, marital_status, address, aadhaar_number,
@@ -637,79 +641,185 @@ app.put('/api/employees/:id', (req, res) => {
       face_descriptor
     } = req.body;
 
+    // Locate target employee by numeric id, emp_id, or request body details
+    let target = db.prepare('SELECT * FROM employees WHERE id = ? OR emp_id = ?').get(req.params.id, req.params.id);
+    if (!target && emp_id) {
+      target = db.prepare('SELECT * FROM employees WHERE emp_id = ?').get(emp_id);
+    }
+    if (!target && name) {
+      target = db.prepare('SELECT * FROM employees WHERE name = ?').get(name);
+    }
+
     const faceEnrolledAt = (face_descriptor && face_descriptor !== '') ? new Date().toISOString() : null;
 
+    // If employee does not exist in SQLite yet, auto-create to ensure data is never lost
+    if (!target) {
+      const actualEmpId = (emp_id && emp_id.trim()) 
+        ? emp_id.trim().toUpperCase() 
+        : (req.params.id && req.params.id !== 'undefined' ? req.params.id.trim().toUpperCase() : generateEmployeeId(role));
+      const actualDoj = doj || getTodayDate();
+      const actualEmail = (email && email.trim()) ? email.trim() : `${actualEmpId.toLowerCase()}@noemail.internal`;
+      const finalAvatar = avatar || doc_photo || null;
+      const finalDocPhoto = doc_photo || avatar || null;
+
+      const insertStmt = db.prepare(`
+        INSERT INTO employees (
+          emp_id, name, email, phone, department, role, pin, avatar,
+          join_date, doj, emergency_phone, father_name, mother_name,
+          spouse_name, gender, dob, blood_group, marital_status,
+          address, aadhaar_number, salary,
+          bank_name, account_number, ifsc_code, account_holder_name, branch_name, pan_number,
+          doc_aadhaar, doc_pan, doc_photo, doc_bank_passbook,
+          doc_10th, doc_12th, doc_college, doc_marksheet,
+          face_descriptor, face_enrolled_at, status
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, 'active'
+        )
+      `);
+      const result = insertStmt.run(
+        actualEmpId, name || 'Employee', actualEmail, phone || '', department || '', role || 'Employee', pin || '1234', finalAvatar,
+        actualDoj, actualDoj, emergency_phone || '', father_name || '', mother_name || '',
+        spouse_name || '', gender || 'Other', dob || '', blood_group || '', marital_status || 'Single',
+        address || '', aadhaar_number || '', salary || '',
+        bank_name || '', account_number || '', ifsc_code || '', account_holder_name || '', branch_name || '', pan_number || '',
+        doc_aadhaar || null, doc_pan || null, finalDocPhoto, doc_bank_passbook || null,
+        doc_10th || null, doc_12th || null, doc_college || null, doc_marksheet || null,
+        face_descriptor || null, faceEnrolledAt
+      );
+      const newEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(result.lastInsertRowid);
+      return res.json({ success: true, employee: newEmp, created: true });
+    }
+
+    const internalId = target.id;
+
+    // Prevent duplicate phone number on a DIFFERENT employee
     if (phone && phone.trim()) {
-      const existingPhone = db.prepare('SELECT id, name, emp_id FROM employees WHERE phone = ? AND id != ?').get(phone.trim(), req.params.id);
+      const cleanPhone = phone.trim();
+      const existingPhone = db.prepare('SELECT id, name, emp_id FROM employees WHERE phone = ? AND id != ?').get(cleanPhone, internalId);
       if (existingPhone) {
         return res.status(400).json({ 
-          error: `Phone ${phone.trim()} is already used by another employee (${existingPhone.name} - ${existingPhone.emp_id}).` 
+          error: `Phone ${cleanPhone} is already used by another employee (${existingPhone.name} - ${existingPhone.emp_id}).` 
         });
       }
     }
 
+    // Prevent duplicate Aadhaar on a DIFFERENT employee
     if (aadhaar_number && aadhaar_number.trim()) {
-      const existingAadhaar = db.prepare('SELECT id, name, emp_id FROM employees WHERE aadhaar_number = ? AND id != ?').get(aadhaar_number.trim(), req.params.id);
+      const cleanAadhaar = aadhaar_number.trim();
+      const existingAadhaar = db.prepare('SELECT id, name, emp_id FROM employees WHERE aadhaar_number = ? AND id != ?').get(cleanAadhaar, internalId);
       if (existingAadhaar) {
         return res.status(400).json({ 
-          error: `Aadhaar number ${aadhaar_number.trim()} is already used by another employee (${existingAadhaar.name} - ${existingAadhaar.emp_id}).` 
+          error: `Aadhaar number ${cleanAadhaar} is already used by another employee (${existingAadhaar.name} - ${existingAadhaar.emp_id}).` 
         });
       }
     }
 
-    const val = (v) => (v !== undefined ? v : null);
+    // Validate and update emp_id if modified
+    const newEmpId = (emp_id && emp_id.trim()) ? emp_id.trim().toUpperCase() : target.emp_id;
+    if (newEmpId !== target.emp_id) {
+      const existingEmpId = db.prepare('SELECT id, name FROM employees WHERE emp_id = ? AND id != ?').get(newEmpId, internalId);
+      if (existingEmpId) {
+        return res.status(400).json({ 
+          error: `Employee ID ${newEmpId} is already assigned to another employee (${existingEmpId.name}).` 
+        });
+      }
+    }
+
+    const val = (v, fallback) => (v !== undefined ? v : fallback);
+    const updatedFaceEnrolledAt = (face_descriptor && face_descriptor !== '') ? new Date().toISOString() : target.face_enrolled_at;
 
     db.prepare(`
       UPDATE employees 
-      SET name = COALESCE(?, name),
-          email = COALESCE(?, email),
-          phone = COALESCE(?, phone),
-          department = COALESCE(?, department),
-          role = COALESCE(?, role),
-          pin = COALESCE(?, pin),
-          avatar = COALESCE(?, avatar),
-          status = COALESCE(?, status),
-          doj = COALESCE(?, doj),
-          join_date = COALESCE(?, join_date),
-          emergency_phone = COALESCE(?, emergency_phone),
-          father_name = COALESCE(?, father_name),
-          mother_name = COALESCE(?, mother_name),
-          spouse_name = COALESCE(?, spouse_name),
-          gender = COALESCE(?, gender),
-          dob = COALESCE(?, dob),
-          blood_group = COALESCE(?, blood_group),
-          marital_status = COALESCE(?, marital_status),
-          address = COALESCE(?, address),
-          aadhaar_number = COALESCE(?, aadhaar_number),
-          salary = COALESCE(?, salary),
-          bank_name = COALESCE(?, bank_name),
-          account_number = COALESCE(?, account_number),
-          ifsc_code = COALESCE(?, ifsc_code),
-          account_holder_name = COALESCE(?, account_holder_name),
-          branch_name = COALESCE(?, branch_name),
-          pan_number = COALESCE(?, pan_number),
-          doc_aadhaar = COALESCE(?, doc_aadhaar),
-          doc_pan = COALESCE(?, doc_pan),
-          doc_photo = COALESCE(?, doc_photo),
-          doc_bank_passbook = COALESCE(?, doc_bank_passbook),
-          doc_10th = COALESCE(?, doc_10th),
-          doc_12th = COALESCE(?, doc_12th),
-          doc_college = COALESCE(?, doc_college),
-          doc_marksheet = COALESCE(?, doc_marksheet),
-          face_descriptor = COALESCE(?, face_descriptor),
-          face_enrolled_at = COALESCE(?, face_enrolled_at)
-      WHERE id = ? OR emp_id = ?
+      SET emp_id = ?,
+          name = ?,
+          email = ?,
+          phone = ?,
+          department = ?,
+          role = ?,
+          pin = ?,
+          avatar = ?,
+          status = ?,
+          doj = ?,
+          join_date = ?,
+          emergency_phone = ?,
+          father_name = ?,
+          mother_name = ?,
+          spouse_name = ?,
+          gender = ?,
+          dob = ?,
+          blood_group = ?,
+          marital_status = ?,
+          address = ?,
+          aadhaar_number = ?,
+          salary = ?,
+          bank_name = ?,
+          account_number = ?,
+          ifsc_code = ?,
+          account_holder_name = ?,
+          branch_name = ?,
+          pan_number = ?,
+          doc_aadhaar = ?,
+          doc_pan = ?,
+          doc_photo = ?,
+          doc_bank_passbook = ?,
+          doc_10th = ?,
+          doc_12th = ?,
+          doc_college = ?,
+          doc_marksheet = ?,
+          face_descriptor = ?,
+          face_enrolled_at = ?
+      WHERE id = ?
     `).run(
-      val(name), val(email), val(phone), val(department), val(role), val(pin), val(avatar), val(status),
-      val(doj), val(doj), val(emergency_phone), val(father_name), val(mother_name), val(spouse_name),
-      val(gender), val(dob), val(blood_group), val(marital_status), val(address), val(aadhaar_number),
-      val(salary),
-      val(bank_name), val(account_number), val(ifsc_code), val(account_holder_name), val(branch_name), val(pan_number),
-      val(doc_aadhaar), val(doc_pan), val(doc_photo), val(doc_bank_passbook),
-      val(doc_10th), val(doc_12th), val(doc_college), val(doc_marksheet),
-      val(face_descriptor), val(faceEnrolledAt), req.params.id, req.params.id
+      newEmpId,
+      val(name, target.name),
+      val(email, target.email),
+      val(phone, target.phone),
+      val(department, target.department),
+      val(role, target.role),
+      val(pin, target.pin),
+      val(avatar, target.avatar),
+      val(status, target.status || 'active'),
+      val(doj, target.doj),
+      val(doj, target.join_date || target.doj),
+      val(emergency_phone, target.emergency_phone),
+      val(father_name, target.father_name),
+      val(mother_name, target.mother_name),
+      val(spouse_name, target.spouse_name),
+      val(gender, target.gender),
+      val(dob, target.dob),
+      val(blood_group, target.blood_group),
+      val(marital_status, target.marital_status),
+      val(address, target.address),
+      val(aadhaar_number, target.aadhaar_number),
+      val(salary, target.salary),
+      val(bank_name, target.bank_name),
+      val(account_number, target.account_number),
+      val(ifsc_code, target.ifsc_code),
+      val(account_holder_name, target.account_holder_name),
+      val(branch_name, target.branch_name),
+      val(pan_number, target.pan_number),
+      val(doc_aadhaar, target.doc_aadhaar),
+      val(doc_pan, target.doc_pan),
+      val(doc_photo, target.doc_photo),
+      val(doc_bank_passbook, target.doc_bank_passbook),
+      val(doc_10th, target.doc_10th),
+      val(doc_12th, target.doc_12th),
+      val(doc_college, target.doc_college),
+      val(doc_marksheet, target.doc_marksheet),
+      val(face_descriptor, target.face_descriptor),
+      updatedFaceEnrolledAt,
+      internalId
     );
-    res.json({ success: true });
+
+    const updatedEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(internalId);
+    res.json({ success: true, employee: updatedEmp });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -717,7 +827,11 @@ app.put('/api/employees/:id', (req, res) => {
 
 app.delete('/api/employees/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM employees WHERE id = ?').run(req.params.id);
+    const target = db.prepare('SELECT id, emp_id FROM employees WHERE id = ? OR emp_id = ?').get(req.params.id, req.params.id);
+    if (target) {
+      db.prepare('DELETE FROM attendance WHERE emp_id = ?').run(target.emp_id);
+      db.prepare('DELETE FROM employees WHERE id = ?').run(target.id);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -25,20 +25,38 @@ export const api = {
   getEmployees: () => fetch(`${API_BASE}/employees`).then(res => res.json()),
   getNextEmployeeId: (designation = '') =>
     fetch(`${API_BASE}/employees/next-id?designation=${encodeURIComponent(designation)}`).then(res => res.json()),
-  createEmployee: (data) =>
-    fetch(`${API_BASE}/employees`, {
+  createEmployee: async (data) => {
+    const res = await fetch(`${API_BASE}/employees`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(res => res.json()),
-  updateEmployee: (id, data) =>
-    fetch(`${API_BASE}/employees/${id}`, {
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json.error || `Failed to create employee (HTTP ${res.status})`);
+    }
+    return json;
+  },
+  updateEmployee: async (id, data) => {
+    const res = await fetch(`${API_BASE}/employees/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(res => res.json()),
-  deleteEmployee: (id) =>
-    fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE' }).then(res => res.json()),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json.error || `Failed to update employee (HTTP ${res.status})`);
+    }
+    return json;
+  },
+  deleteEmployee: async (id) => {
+    const res = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json.error || `Failed to delete employee (HTTP ${res.status})`);
+    }
+    return json;
+  },
   uploadDocument: (base64, filename, docType) =>
     fetch(`${API_BASE}/upload-document`, {
       method: 'POST',

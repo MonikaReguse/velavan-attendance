@@ -279,16 +279,13 @@ function initDb() {
         `).run(emp.emp_id, emp.name, emp.email, emp.phone, emp.department, emp.role, emp.salary, emp.pin, emp.status, emp.doj, emp.doj);
         console.log(`[Auto-Seed] Permanent employee created: ${emp.name} (${emp.emp_id})`);
       } else {
+        // DO NOT overwrite user-edited employee details (name, role, department, emp_id)
         db.prepare(`
           UPDATE employees 
-          SET emp_id = COALESCE(?, emp_id),
-              name = COALESCE(?, name),
-              role = COALESCE(?, role),
-              salary = CASE WHEN (salary IS NULL OR salary = '' OR salary = '0') THEN ? ELSE salary END,
-              department = COALESCE(?, department),
+          SET salary = CASE WHEN (salary IS NULL OR salary = '' OR salary = '0') THEN ? ELSE salary END,
               status = 'active'
           WHERE id = ?
-        `).run(emp.emp_id, emp.name, emp.role, emp.salary, emp.department, existing.id);
+        `).run(emp.salary, existing.id);
       }
     } catch (e) {
       console.error(`[Auto-Seed Error] for ${emp.name}:`, e.message);

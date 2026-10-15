@@ -108,17 +108,22 @@ export default function EmployeeDirectory({ setActiveTab }) {
 
   const loadEmployees = async () => {
     try {
-      const data = await api.getEmployees();
+      let data = [];
+      try {
+        data = await api.getEmployees();
+      } catch (err) {
+        console.warn('Could not fetch employees from server, using fallback:', err);
+      }
       
       // Permanent team members roster of Velavan Properties to guarantee zero data loss
       const defaultTeam = [
-        { emp_id: 'VPDM08', name: 'A Anto Monika Reguse', role: 'Digital Marketing Executive', salary: '25000', phone: '9876543210', department: 'Digital Marketing', doj: '2026-02-16' },
-        { emp_id: 'VP004', name: 'G Senthil Kumar', role: 'Operations Manager', salary: '30000', phone: '9876543213', department: 'Operations', doj: '2026-02-16' },
-        { emp_id: 'VPDM02', name: 'M Jaffrin', role: 'Digital Marketing Specialist', salary: '18000', phone: '9876543211', department: 'Digital Marketing', doj: '2026-02-16' },
-        { emp_id: 'VP003', name: 'M Jega Jothi', role: 'Executive', salary: '20000', phone: '9876543212', department: 'Operations', doj: '2026-02-16' },
-        { emp_id: 'VP007', name: 'M Jegatheeswari', role: 'Senior Executive', salary: '22000', phone: '9876543215', department: 'Operations', doj: '2026-02-16' },
-        { emp_id: 'VP005', name: 'T.R Vathana', role: 'HR / Operations', salary: '22000', phone: '9876543214', department: 'Operations', doj: '2026-02-16' },
-        { emp_id: 'VPWD01', name: 'monika', role: 'Website Design', salary: '20000', phone: '8754898473', department: 'Information Technology', doj: '2026-02-16' }
+        { id: 18, emp_id: 'VPDM08', name: 'A Anto Monika Reguse', role: 'Digital Marketing Executive', salary: '25000', phone: '9876543210', department: 'Digital Marketing', doj: '2026-02-16' },
+        { id: 21, emp_id: 'VP004', name: 'G Senthil Kumar', role: 'Operations Manager', salary: '30000', phone: '9876543213', department: 'Operations', doj: '2026-02-16' },
+        { id: 19, emp_id: 'VPDM02', name: 'M Jaffrin', role: 'Digital Marketing Specialist', salary: '18000', phone: '9876543211', department: 'Digital Marketing', doj: '2026-02-16' },
+        { id: 20, emp_id: 'VP003', name: 'M Jega Jothi', role: 'Executive', salary: '20000', phone: '9876543212', department: 'Operations', doj: '2026-02-16' },
+        { id: 23, emp_id: 'VP007', name: 'M Jegatheeswari', role: 'Senior Executive', salary: '22000', phone: '9876543215', department: 'Operations', doj: '2026-02-16' },
+        { id: 22, emp_id: 'VP005', name: 'T.R Vathana', role: 'HR / Operations', salary: '22000', phone: '9876543214', department: 'Operations', doj: '2026-02-16' },
+        { id: 17, emp_id: 'VPWD01', name: 'monika', role: 'Website Design', salary: '20000', phone: '8754898473', department: 'Information Technology', doj: '2026-02-16' }
       ];
 
       let mergedData = Array.isArray(data) && data.length > 0 ? [...data] : [];
@@ -132,38 +137,54 @@ export default function EmployeeDirectory({ setActiveTab }) {
         }
       });
 
-      // Safeguard against Render restart: Merge rich bank details & documents from local cache
+      // Safeguard against Render restart: Merge user edits, rich bank details & documents from local cache
       const cachedStr = localStorage.getItem('velavan_employee_details_cache');
       if (cachedStr) {
         try {
           const cached = JSON.parse(cachedStr);
           mergedData = mergedData.map(emp => {
-            const c = cached[emp.emp_id];
+            const c = cached[emp.emp_id] || cached[String(emp.id)];
             if (!c) return emp;
             return {
               ...emp,
-              bank_name: emp.bank_name || c.bank_name || '',
-              account_number: emp.account_number || c.account_number || '',
-              ifsc_code: emp.ifsc_code || c.ifsc_code || '',
-              account_holder_name: emp.account_holder_name || c.account_holder_name || '',
-              branch_name: emp.branch_name || c.branch_name || '',
-              pan_number: emp.pan_number || c.pan_number || '',
-              doc_aadhaar: emp.doc_aadhaar || c.doc_aadhaar || '',
-              doc_pan: emp.doc_pan || c.doc_pan || '',
-              doc_photo: emp.doc_photo || c.doc_photo || '',
-              doc_bank_passbook: emp.doc_bank_passbook || c.doc_bank_passbook || '',
-              doc_10th: emp.doc_10th || c.doc_10th || '',
-              doc_12th: emp.doc_12th || c.doc_12th || '',
-              doc_college: emp.doc_college || c.doc_college || '',
-              doc_marksheet: emp.doc_marksheet || c.doc_marksheet || '',
-              avatar: emp.avatar || c.avatar || c.doc_photo || ''
+              id: emp.id || c.id,
+              name: c.name || emp.name,
+              role: c.role || emp.role,
+              department: c.department || emp.department,
+              salary: (c.salary !== undefined && c.salary !== '') ? c.salary : emp.salary,
+              phone: c.phone || emp.phone,
+              emergency_phone: c.emergency_phone || emp.emergency_phone,
+              doj: c.doj || emp.doj,
+              address: c.address || emp.address,
+              aadhaar_number: c.aadhaar_number || emp.aadhaar_number,
+              pin: c.pin || emp.pin || '1234',
+              bank_name: c.bank_name || emp.bank_name || '',
+              account_number: c.account_number || emp.account_number || '',
+              ifsc_code: c.ifsc_code || emp.ifsc_code || '',
+              account_holder_name: c.account_holder_name || emp.account_holder_name || c.name || emp.name || '',
+              branch_name: c.branch_name || emp.branch_name || '',
+              pan_number: c.pan_number || emp.pan_number || '',
+              doc_aadhaar: c.doc_aadhaar || emp.doc_aadhaar || '',
+              doc_pan: c.doc_pan || emp.doc_pan || '',
+              doc_photo: c.doc_photo || emp.doc_photo || c.avatar || emp.avatar || '',
+              doc_bank_passbook: c.doc_bank_passbook || emp.doc_bank_passbook || '',
+              doc_10th: c.doc_10th || emp.doc_10th || '',
+              doc_12th: c.doc_12th || emp.doc_12th || '',
+              doc_college: c.doc_college || emp.doc_college || '',
+              doc_marksheet: c.doc_marksheet || emp.doc_marksheet || '',
+              avatar: c.avatar || c.doc_photo || emp.avatar || ''
             };
           });
 
-          // Also merge any other custom employees previously saved in cache
+          // Also merge any other custom employees previously saved in cache (e.g. 8th employee)
           for (const [cachedEmpId, c] of Object.entries(cached)) {
             if (!existingEmpIds.has(cachedEmpId) && c && c.name) {
-              mergedData.push(c);
+              mergedData.push({
+                ...c,
+                id: c.id || cachedEmpId,
+                emp_id: cachedEmpId,
+                status: c.status || 'active'
+              });
               existingEmpIds.add(cachedEmpId);
             }
           }
@@ -307,24 +328,42 @@ export default function EmployeeDirectory({ setActiveTab }) {
         account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
       };
 
-      // Safeguard against Render restart: Cache employee profile locally
+      const targetId = editingEmp?.id || editingEmp?.emp_id || formData.emp_id;
+
+      // 1. Safeguard: Immediately cache employee profile locally so refresh NEVER loses changes
       try {
         const cachedStr = localStorage.getItem('velavan_employee_details_cache');
         const cached = cachedStr ? JSON.parse(cachedStr) : {};
-        if (formData.emp_id) {
-          cached[formData.emp_id] = { ...(cached[formData.emp_id] || {}), ...payload };
+        const key = formData.emp_id || editingEmp?.emp_id || String(targetId);
+        if (key) {
+          cached[key] = { ...(cached[key] || {}), ...payload, id: targetId, emp_id: key };
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
       } catch (e) {}
 
+      // 2. Persist to server backend database
+      let res;
       if (editingEmp) {
-        await api.updateEmployee(editingEmp.id, payload);
+        res = await api.updateEmployee(targetId, payload);
       } else {
-        await api.createEmployee(payload);
+        res = await api.createEmployee(payload);
       }
+
+      // 3. Update cache with confirmed server response
+      if (res && res.employee) {
+        try {
+          const cachedStr = localStorage.getItem('velavan_employee_details_cache');
+          const cached = cachedStr ? JSON.parse(cachedStr) : {};
+          const key = res.employee.emp_id || formData.emp_id || String(targetId);
+          cached[key] = { ...(cached[key] || {}), ...res.employee, ...payload };
+          localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
+        } catch (e) {}
+      }
+
       setModalOpen(false);
       await loadEmployees();
     } catch (err) {
+      console.error('Failed to save employee:', err);
       setValidationError('Error saving employee: ' + err.message);
     } finally {
       setSaveLoading(false);
@@ -336,7 +375,16 @@ export default function EmployeeDirectory({ setActiveTab }) {
       return;
     }
     try {
-      await api.deleteEmployee(emp.id);
+      await api.deleteEmployee(emp.id || emp.emp_id);
+      try {
+        const cachedStr = localStorage.getItem('velavan_employee_details_cache');
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          delete cached[emp.emp_id];
+          if (emp.id) delete cached[String(emp.id)];
+          localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
+        }
+      } catch (e) {}
       loadEmployees();
     } catch (err) {
       alert('Error deleting employee: ' + err.message);
