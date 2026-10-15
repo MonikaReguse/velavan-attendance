@@ -97,9 +97,16 @@ export const api = {
       body: JSON.stringify({ status, admin_notes }),
     }).then(res => res.json()),
 
-  // Export
+  // Export & Database Backup
   getExportUrl: (filters = {}) => {
     const params = new URLSearchParams(filters).toString();
     return `${API_BASE}/reports/export?${params}`;
-  }
+  },
+  getBackup: () => fetch(`${API_BASE}/backup`).then(res => res.json()),
+  restoreBackup: (backupData) =>
+    fetch(`${API_BASE}/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backupData),
+    }).then(res => res.json())
 };

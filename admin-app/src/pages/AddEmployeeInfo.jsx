@@ -38,47 +38,62 @@ import { api } from '../services/api';
 import { loadFaceModels, getFaceDescriptor } from '../services/faceService';
 
 export default function AddEmployeeInfo({ setActiveTab }) {
-  const [formData, setFormData] = useState({
-    emp_id: '', // Employee ID (Format: VP + Designation Code + Serial Number e.g. VPDM01)
+  const defaultFormData = {
+    emp_id: '',
     name: '',
-    role: '', // Employee Designation
-    doj: new Date().toISOString().split('T')[0], // Employee Date of Joining
-    salary: '', // Salary Allocated (e.g. ₹25,000 / month)
-    phone: '', // Employee Phone Number
-    emergency_phone: '', // Emergency Phone Number
-    father_name: '', // Father Name
-    mother_name: '', // Mother Name
-    spouse_name: '', // Spouses Name
-    gender: 'Male', // Gender
-    email: '', // Mail (Optional)
-    dob: '1995-01-01', // Date of Birth
-    blood_group: 'O+', // Blood Group
-    marital_status: 'Single', // Marital Status
-    address: '', // Address (Required)
-    aadhaar_number: '', // Aadhaar Number (Required)
-    avatar: '', // Photo
-    face_descriptor: '', // Face Recognition Biometric Vector
-
-    // Bank Details
+    role: '',
+    doj: new Date().toISOString().split('T')[0],
+    salary: '',
+    phone: '',
+    emergency_phone: '',
+    father_name: '',
+    mother_name: '',
+    spouse_name: '',
+    gender: 'Male',
+    email: '',
+    dob: '1995-01-01',
+    blood_group: 'O+',
+    marital_status: 'Single',
+    address: '',
+    aadhaar_number: '',
+    pin: '1234',
+    avatar: '',
+    face_descriptor: '',
     bank_name: '',
     account_number: '',
     ifsc_code: '',
     account_holder_name: '',
     branch_name: '',
     pan_number: '',
-
-    // Employee Documents (4 REQUIRED: Aadhaar, PAN, Photo, Bank First Page)
     doc_aadhaar: '',
     doc_pan: '',
     doc_photo: '',
     doc_bank_passbook: '',
-
-    // Academic & Qualification Documents (10th, 12th, College, Marksheet)
     doc_10th: '',
     doc_12th: '',
     doc_college: '',
     doc_marksheet: ''
+  };
+
+  const [formData, setFormData] = useState(() => {
+    try {
+      const saved = localStorage.getItem('velavan_employee_form_draft');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...defaultFormData, ...parsed };
+      }
+    } catch (e) {}
+    return defaultFormData;
   });
+
+  // Auto-save form draft so refreshing the page NEVER loses typed details!
+  useEffect(() => {
+    try {
+      if (formData.name || formData.phone || formData.role || formData.salary || formData.avatar) {
+        localStorage.setItem('velavan_employee_form_draft', JSON.stringify(formData));
+      }
+    } catch (e) {}
+  }, [formData]);
 
   const [cameraActive, setCameraActive] = useState(false);
   const [modelLoading, setModelLoading] = useState(true);
@@ -325,40 +340,6 @@ export default function AddEmployeeInfo({ setActiveTab }) {
       setErrorMsg('Please enter the employee phone number.');
       return;
     }
-    if (!formData.aadhaar_number.trim()) {
-      setErrorMsg('Please enter the Aadhaar Number (Required).');
-      return;
-    }
-    if (!formData.address.trim()) {
-      setErrorMsg('Please enter the residential address (Required).');
-      return;
-    }
-
-    // Bank Details Validation
-    if (!formData.bank_name.trim()) {
-      setErrorMsg('Please enter Employee Bank Name.');
-      return;
-    }
-    if (!formData.account_number.trim()) {
-      setErrorMsg('Please enter Bank Account Number.');
-      return;
-    }
-    if (!formData.ifsc_code.trim()) {
-      setErrorMsg('Please enter Bank IFSC Code (e.g. SBIN0001234).');
-      return;
-    }
-
-    // Required 4 Documents Validation: Aadhaar card, PAN card, Photo, Bank first page
-    const missingDocs = [];
-    if (!formData.doc_aadhaar) missingDocs.push('Aadhar Card');
-    if (!formData.doc_pan) missingDocs.push('PAN Card');
-    if (!formData.doc_photo && !formData.avatar) missingDocs.push('Official Photo');
-    if (!formData.doc_bank_passbook) missingDocs.push('Bank First Page (Passbook / Cheque)');
-
-    if (missingDocs.length > 0) {
-      setErrorMsg(`Required Documents Missing: Please upload ${missingDocs.join(', ')} (All 4 mandatory documents are required).`);
-      return;
-    }
 
     try {
       setSubmitting(true);
@@ -379,6 +360,11 @@ export default function AddEmployeeInfo({ setActiveTab }) {
       const res = await api.createEmployee(payload);
 
       if (res.success || res.id) {
+        // Clear saved draft on successful database creation
+        try {
+          localStorage.removeItem('velavan_employee_form_draft');
+        } catch (e) {}
+
         setSuccessData({
           emp_id: res.emp_id || finalEmpId || 'Registered',
           name: formData.name,
@@ -442,6 +428,9 @@ export default function AddEmployeeInfo({ setActiveTab }) {
       doc_college: '',
       doc_marksheet: ''
     });
+    try {
+      localStorage.removeItem('velavan_employee_form_draft');
+    } catch (e) {}
     setSuccessData(null);
     setFaceEnrolled(false);
     setScanStatus('');

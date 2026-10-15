@@ -1313,6 +1313,66 @@ app.get('/api/reports/export', (req, res) => {
   }
 });
 
+// Full Cloud Database Backup Export
+app.get('/api/backup', (req, res) => {
+  try {
+    const employees = db.prepare('SELECT * FROM employees').all();
+    const attendance = db.prepare('SELECT * FROM attendance').all();
+    const settings = db.prepare('SELECT * FROM settings').all();
+    const leaves = db.prepare('SELECT * FROM leaves').all();
+    res.json({
+      timestamp: new Date().toISOString(),
+      organization: 'Velavan Properties',
+      employeeCount: employees.length,
+      employees,
+      attendance,
+      settings,
+      leaves
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Full Cloud Database Restore
+app.post('/api/backup/restore', (req, res) => {
+  try {
+    const { employees, attendance, settings, leaves } = req.body;
+    let restoredEmployees = 0;
+    let restoredAttendance = 0;
+
+    const restoreTx = db.transaction(() => {
+      if (Array.isArray(employees)) {
+        for (const emp of employees) {
+          const keys = Object.keys(emp).filter(k => k !== 'id');
+          const placeholders = keys.map(() => '?').join(', ');
+          const values = keys.map(k => emp[k]);
+          db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          restoredEmployees++;
+        }
+      }
+      if (Array.isArray(attendance)) {
+        for (const att of attendance) {
+          const keys = Object.keys(att).filter(k => k !== 'id');
+          const placeholders = keys.map(() => '?').join(', ');
+          const values = keys.map(k => att[k]);
+          db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          restoredAttendance++;
+        }
+      }
+    });
+
+    restoreTx();
+    res.json({ 
+      success: true, 
+      message: `Successfully restored ${restoredEmployees} employees and ${restoredAttendance} attendance records.`
+    });
+  } catch (err) {
+    console.error('Backup restore error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // In production: Serve built React applications if dist exists
 const adminDist = path.join(__dirname, '../admin-app/dist');
 if (fs.existsSync(adminDist)) {

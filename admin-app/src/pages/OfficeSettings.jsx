@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Shield, Clock, Sliders, Lock, User } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Shield, Clock, Sliders, Lock, User, Database, Download, Upload, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 
 export default function OfficeSettings({ onUpdateOfficeName }) {
@@ -17,6 +17,8 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupMessage, setBackupMessage] = useState(null);
 
   useEffect(() => {
     loadSettings();
@@ -47,6 +49,65 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
       alert('Error saving settings: ' + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadBackup = async () => {
+    try {
+      setBackupLoading(true);
+      setBackupMessage(null);
+      const data = await api.getBackup();
+      if (!data.success) throw new Error(data.error || 'Failed to download backup');
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.download = `velavan_attendance_backup_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setBackupMessage({
+        type: 'success',
+        text: `Backup exported! (${data.data?.employees?.length || 0} employees, ${data.data?.attendance?.length || 0} attendance records)`
+      });
+    } catch (err) {
+      setBackupMessage({ type: 'error', text: 'Backup failed: ' + err.message });
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleRestoreBackup = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!window.confirm('Warning: Restoring will overwrite matching records and insert missing employees/attendance. Do you want to proceed?')) {
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setBackupLoading(true);
+      setBackupMessage(null);
+      const text = await file.text();
+      const jsonData = JSON.parse(text);
+
+      const res = await api.restoreBackup(jsonData);
+      if (!res.success) throw new Error(res.error || 'Failed to restore database');
+
+      setBackupMessage({
+        type: 'success',
+        text: `Database restored! (${res.restored?.employees || 0} employees, ${res.restored?.attendance || 0} attendance records)`
+      });
+      loadSettings();
+    } catch (err) {
+      setBackupMessage({ type: 'error', text: 'Restore failed: ' + err.message });
+    } finally {
+      setBackupLoading(false);
+      e.target.value = '';
     }
   };
 
@@ -251,6 +312,86 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
               />
             </div>
           </div>
+        </div>
+
+        {/* Database Backup & Disaster Recovery */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
+              <Database className="w-4 h-4 text-emerald-600" />
+              <span>Cloud Database Backup & Disaster Recovery</span>
+            </h3>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Zero Data Loss
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-500">
+            Download a full snapshot of all registered employees, face recognition data, attendance history, and office settings. You can re-upload this file anytime to restore everything in seconds.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            {/* Download Backup */}
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>Download Full Database Backup</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Saves employees, face profiles, attendance records, and office settings into a secure JSON backup file.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadBackup}
+                disabled={backupLoading}
+                className="inline-flex items-center justify-center space-x-2 w-full py-2 px-3 text-xs font-bold text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {backupLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>{backupLoading ? 'Exporting...' : 'Export & Download .json'}</span>
+              </button>
+            </div>
+
+            {/* Restore Backup */}
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
+                  <Upload className="w-4 h-4 text-blue-600" />
+                  <span>Restore Database from File</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Upload a previously downloaded <code className="font-mono bg-slate-200 px-1 py-0.5 rounded">.json</code> backup to restore all employees and records instantly.
+                </p>
+              </div>
+              <label className="inline-flex items-center justify-center space-x-2 w-full py-2 px-3 text-xs font-bold text-blue-700 bg-blue-100/80 hover:bg-blue-200 border border-blue-300 rounded-lg transition-colors cursor-pointer">
+                {backupLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                <span>Upload & Restore Backup</span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleRestoreBackup}
+                  disabled={backupLoading}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+
+          {backupMessage && (
+            <div className={`p-3 rounded-lg text-xs font-medium flex items-center space-x-2 ${
+              backupMessage.type === 'success' 
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              {backupMessage.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              )}
+              <span>{backupMessage.text}</span>
+            </div>
+          )}
         </div>
 
         {/* Save button and status */}

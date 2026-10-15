@@ -15,7 +15,16 @@ import { api } from './services/api';
 export default function App() {
   // Default to Kiosk Mode (Employee FaceLock Only)
   // Ensures employees ONLY see the FaceLock camera and punch screen!
-  const [isKioskMode, setIsKioskMode] = useState(true);
+  const [isKioskMode, setIsKioskMode] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('workpulse_admin_user');
+      const savedKiosk = localStorage.getItem('workpulse_is_kiosk');
+      if (savedKiosk !== null) return savedKiosk === 'true';
+      return !savedUser;
+    } catch {
+      return true;
+    }
+  });
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [adminUser, setAdminUser] = useState(() => {
     try {
@@ -26,7 +35,21 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState('facelock-kiosk');
+  const [activeTab, setActiveTabState] = useState(() => {
+    try {
+      return localStorage.getItem('workpulse_admin_tab') || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
+
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('workpulse_admin_tab', tab);
+    } catch (e) {}
+  };
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [officeName, setOfficeName] = useState('Velavan Properties');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -39,19 +62,28 @@ export default function App() {
 
   const handleUnlockSuccess = (user) => {
     setAdminUser(user);
-    localStorage.setItem('workpulse_admin_user', JSON.stringify(user));
+    try {
+      localStorage.setItem('workpulse_admin_user', JSON.stringify(user));
+      localStorage.setItem('workpulse_is_kiosk', 'false');
+    } catch (e) {}
     setIsKioskMode(false);
     setIsUnlockModalOpen(false);
   };
 
   const handleLockKiosk = () => {
     setIsKioskMode(true);
-    setActiveTab('facelock-kiosk');
+    try {
+      localStorage.setItem('workpulse_is_kiosk', 'true');
+    } catch (e) {}
+    setActiveTabState('facelock-kiosk');
     setIsMobileMenuOpen(false);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('workpulse_admin_user');
+    try {
+      localStorage.removeItem('workpulse_admin_user');
+      localStorage.setItem('workpulse_is_kiosk', 'true');
+    } catch (e) {}
     setAdminUser(null);
     handleLockKiosk();
   };
