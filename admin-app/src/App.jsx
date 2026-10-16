@@ -120,9 +120,25 @@ export default function App() {
             return updated;
           });
 
+          // Also check if local storage has legitimate employees that server might be missing
+          const currentServerEmpKeys = new Set(mergedServerEmps.map(e => e.emp_id));
+          const currentServerNames = new Set(mergedServerEmps.map(e => (e.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')));
+          const missingEmpsFromBackup = localEmps.filter(l => {
+            if (!l || !l.name || !l.emp_id) return false;
+            const cName = l.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            return !currentServerEmpKeys.has(l.emp_id) && !currentServerNames.has(cName);
+          });
+
+          if (missingEmpsFromBackup.length > 0) {
+            console.warn(`[Disaster Recovery] Preserving ${missingEmpsFromBackup.length} employees from local storage missing on server:`, missingEmpsFromBackup.map(e => e.name));
+            mergedServerEmps.push(...missingEmpsFromBackup);
+            profileEnriched = true;
+          }
+
           // Check if any attendance records punched locally are missing from server for valid staff:
+          const finalEmpKeys = new Set(mergedServerEmps.map(e => e.emp_id));
           const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
-          const missingAtts = localAtts.filter(a => serverEmpKeys.has(a.emp_id) && !serverAttKeys.has(`${a.emp_id}_${a.date}`));
+          const missingAtts = localAtts.filter(a => finalEmpKeys.has(a.emp_id) && !serverAttKeys.has(`${a.emp_id}_${a.date}`));
 
           if (profileEnriched || missingAtts.length > 0) {
             console.log(`[Disaster Recovery] Syncing enriched profile details and ${missingAtts.length} attendance records to server...`);
@@ -135,7 +151,7 @@ export default function App() {
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(payload));
             window.dispatchEvent(new CustomEvent('velavan_data_restored'));
           } else {
-            // Server is authoritative -> update local backup to match server exactly
+            // Update local backup to match server
             localStorage.setItem('velavan_master_database_backup', JSON.stringify({
               ...backupData,
               employees: mergedServerEmps
