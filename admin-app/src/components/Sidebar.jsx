@@ -68,15 +68,15 @@ export default function Sidebar({ activeTab, setActiveTab, isMobileMenuOpen, set
         )}
       </div>
 
-      {/* Lock Kiosk Button */}
+      {/* Kiosk Mode Switcher */}
       <div className="p-3 border-b border-slate-100 bg-amber-50/40">
         <button
           onClick={handleLock}
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 border border-amber-300 font-bold text-xs shadow-2xs transition-all"
-          title="Switch screen to FaceLock only for staff attendance"
+          className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-xs shadow-2xs transition-all"
+          title="Switch screen to FaceLock terminal for staff attendance"
         >
-          <Lock className="w-4 h-4 text-amber-800" />
-          <span>Lock to Employee FaceLock</span>
+          <Lock className="w-3.5 h-3.5 text-amber-800" />
+          <span>Switch to FaceLock Kiosk</span>
         </button>
       </div>
 
@@ -115,19 +115,20 @@ export default function Sidebar({ activeTab, setActiveTab, isMobileMenuOpen, set
       <div className="p-4 border-t border-slate-200 bg-slate-50/50">
         <div className="rounded-xl bg-gradient-to-br from-red-50/80 via-white to-amber-50/50 p-3.5 border border-red-200/60 text-xs shadow-2xs">
           <div className="font-bold text-slate-800 flex items-center justify-between mb-1">
-            <span>Employee Portal</span>
+            <span>Staff Self-Service Portal</span>
             <span className="flex h-2 w-2 relative">
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#8b0000]"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
           </div>
-          <p className="text-slate-500 text-[11px] mb-2.5">Staff portal for viewing timesheets & profile (Port 5174)</p>
+          <p className="text-slate-500 text-[11px] mb-2.5">Staff portal for attendance logs, personal timesheets & punch history</p>
           <a
-            href="http://localhost:5174"
+            href={typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5174' : 'https://velavan-attendance.vercel.app'}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center space-x-1.5 text-[#8b0000] hover:text-[#a70809] font-bold text-[11px]"
           >
-            <span>Open Employee Portal</span>
+            <span>Open Staff Portal</span>
             <ExternalLink className="w-3 h-3" />
           </a>
         </div>

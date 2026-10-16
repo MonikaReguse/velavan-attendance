@@ -106,9 +106,17 @@ export default function AdminDashboard({ setActiveTab }) {
             <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5">
               Daily Office FaceLock Attendance
             </h3>
-            <p className="text-xs text-red-100 max-w-xl mt-1">
-              Employees daily come to office and mark attendance here using FaceLock. Shift: 09:30 AM – 06:00 PM (Late arrival after 09:40 AM, OT from 6:00 PM after 20-min buffer).
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="inline-flex items-center space-x-1 bg-white/15 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-white border border-white/20">
+                <span>Shift: 09:30 AM – 06:00 PM</span>
+              </span>
+              <span className="inline-flex items-center space-x-1 bg-amber-400/20 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-amber-200 border border-amber-300/30">
+                <span>Late After: 09:40 AM</span>
+              </span>
+              <span className="inline-flex items-center space-x-1 bg-emerald-400/20 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-emerald-200 border border-emerald-300/30">
+                <span>OT Buffer: 20 mins</span>
+              </span>
+            </div>
           </div>
         </div>
         <div className="relative z-10 flex items-center space-x-3">
@@ -140,10 +148,10 @@ export default function AdminDashboard({ setActiveTab }) {
             </div>
           </div>
           <button
-            onClick={() => setActiveTab('add-employee')}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+            onClick={() => setActiveTab('face-enrollment')}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
           >
-            <span>Add / Enroll Staff</span>
+            <span>Enroll Face Biometrics</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>

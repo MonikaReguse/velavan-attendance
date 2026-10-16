@@ -462,30 +462,23 @@ export default function EmployeeDirectory({ setActiveTab }) {
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Employee List & Directory</h2>
+          <div className="flex items-center space-x-2 mb-1">
+            <span className="w-2 h-2 rounded-full bg-[#8b0000]"></span>
+            <h2 className="text-lg font-black text-slate-800 tracking-tight">Official Staff Directory</h2>
+          </div>
           <p className="text-xs text-slate-500">
-            Registered company staff directory showing Name, Job Designation, Date of Joining (DOJ), Salary Allocated, Bank Details & Verification Documents.
+            Registered company team directory showing Employee ID, Designation, Joining Date, Salary, Bank Details & Verification Status.
           </p>
         </div>
         <div className="flex items-center space-x-2 self-start sm:self-auto">
-          {employees.length > 0 && (
-            <button
-              onClick={handleClearAll}
-              className="flex items-center space-x-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-3 py-2.5 rounded-lg shadow-2xs transition-colors"
-              title="Delete all current employees so you can add your new staff list"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>Clear Staff List</span>
-            </button>
-          )}
           <button
             onClick={() => setActiveTab('add-employee')}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+            className="flex items-center space-x-2 bg-[#8b0000] hover:bg-[#7b0000] text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Add Employee Info</span>
+            <span>Add New Employee</span>
           </button>
         </div>
       </div>

@@ -17,7 +17,18 @@ import { loadFaceModels, getFaceDescriptor, faceapi } from '../services/faceServ
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 
 export default function FaceEnrollment() {
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) return p.employees;
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) return JSON.parse(e);
+    } catch {}
+    return [];
+  });
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [modelLoading, setModelLoading] = useState(true);

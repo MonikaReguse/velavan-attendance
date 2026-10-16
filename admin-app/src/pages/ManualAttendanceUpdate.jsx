@@ -25,8 +25,28 @@ import { api } from '../services/api';
 import { formatTime } from '../services/timeUtils';
 
 export default function ManualAttendanceUpdate() {
-  const [employees, setEmployees] = useState([]);
-  const [recentLogs, setRecentLogs] = useState([]);
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) return p.employees;
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) return JSON.parse(e);
+    } catch {}
+    return [];
+  });
+  const [recentLogs, setRecentLogs] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance.slice(0, 50);
+      }
+    } catch {}
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', message: '' }

@@ -17,8 +17,28 @@ import {
 import { api } from '../services/api';
 
 export default function AttendanceReports() {
-  const [data, setData] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const [data, setData] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance;
+      }
+    } catch {}
+    return [];
+  });
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) return p.employees;
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) return JSON.parse(e);
+    } catch {}
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     startDate: '',
