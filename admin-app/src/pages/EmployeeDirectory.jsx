@@ -126,62 +126,76 @@ export default function EmployeeDirectory({ setActiveTab }) {
       
       let mergedData = Array.isArray(data) ? [...data] : [];
 
-      // Safeguard against Render restart: Merge user edits, rich bank details & documents from local cache
-      const cachedStr = localStorage.getItem('velavan_employee_details_cache');
-      if (cachedStr) {
-        try {
-          const cached = JSON.parse(cachedStr);
+      // If server returned employees, server is authoritative
+      if (mergedData.length > 0) {
+        const cachedStr = localStorage.getItem('velavan_employee_details_cache');
+        if (cachedStr) {
+          try {
+            const cached = JSON.parse(cachedStr);
+            const validEmpIds = new Set(mergedData.map(e => String(e.emp_id)));
+            const validIds = new Set(mergedData.map(e => String(e.id)));
 
-          mergedData = mergedData.map(emp => {
-            const c = cached[emp.emp_id] || cached[String(emp.id)];
-            if (!c) return emp;
-            return {
-              ...emp,
-              id: emp.id || c.id,
-              name: c.name || emp.name,
-              role: c.role || emp.role,
-              department: c.department || emp.department,
-              salary: (c.salary !== undefined && c.salary !== '') ? c.salary : emp.salary,
-              phone: c.phone || emp.phone,
-              emergency_phone: c.emergency_phone || emp.emergency_phone,
-              doj: c.doj || emp.doj,
-              address: c.address || emp.address,
-              aadhaar_number: c.aadhaar_number || emp.aadhaar_number,
-              pin: c.pin || emp.pin || '1234',
-              bank_name: c.bank_name || emp.bank_name || '',
-              account_number: c.account_number || emp.account_number || '',
-              ifsc_code: c.ifsc_code || emp.ifsc_code || '',
-              account_holder_name: c.account_holder_name || emp.account_holder_name || c.name || emp.name || '',
-              branch_name: c.branch_name || emp.branch_name || '',
-              pan_number: c.pan_number || emp.pan_number || '',
-              doc_aadhaar: c.doc_aadhaar || emp.doc_aadhaar || '',
-              doc_pan: c.doc_pan || emp.doc_pan || '',
-              doc_photo: c.doc_photo || emp.doc_photo || c.avatar || emp.avatar || '',
-              doc_bank_passbook: c.doc_bank_passbook || emp.doc_bank_passbook || '',
-              doc_10th: c.doc_10th || emp.doc_10th || '',
-              doc_12th: c.doc_12th || emp.doc_12th || '',
-              doc_college: c.doc_college || emp.doc_college || '',
-              doc_marksheet: c.doc_marksheet || emp.doc_marksheet || '',
-              avatar: c.avatar || c.doc_photo || emp.avatar || ''
-            };
-          });
-
-          // Merge any offline newly added employees if not already in list
-          const existingEmpIds = new Set(mergedData.map(e => e.emp_id));
-          for (const [cachedEmpId, c] of Object.entries(cached)) {
-            if (!existingEmpIds.has(cachedEmpId) && c && c.name) {
-              mergedData.push({
-                ...c,
-                id: c.id || cachedEmpId,
-                emp_id: cachedEmpId,
-                status: c.status || 'active'
-              });
-              existingEmpIds.add(cachedEmpId);
+            // Clean up any stale/ghost entries from cache so old test data is completely eradicated
+            let cacheDirty = false;
+            for (const key of Object.keys(cached)) {
+              if (!validEmpIds.has(key) && !validIds.has(key)) {
+                delete cached[key];
+                cacheDirty = true;
+              }
             }
-          }
-        } catch (e) {}
+            if (cacheDirty) {
+              localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
+            }
+
+            // Merge rich documents / bank details for valid existing employees
+            mergedData = mergedData.map(emp => {
+              const c = cached[emp.emp_id] || cached[String(emp.id)];
+              if (!c) return emp;
+              return {
+                ...emp,
+                salary: (emp.salary !== undefined && emp.salary !== '' && emp.salary !== null) ? emp.salary : (c.salary || ''),
+                phone: emp.phone || c.phone || '',
+                emergency_phone: emp.emergency_phone || c.emergency_phone || '',
+                doj: emp.doj || c.doj || '',
+                address: emp.address || c.address || '',
+                aadhaar_number: emp.aadhaar_number || c.aadhaar_number || '',
+                pin: emp.pin || c.pin || '1234',
+                bank_name: emp.bank_name || c.bank_name || '',
+                account_number: emp.account_number || c.account_number || '',
+                ifsc_code: emp.ifsc_code || c.ifsc_code || '',
+                account_holder_name: emp.account_holder_name || c.account_holder_name || emp.name || '',
+                branch_name: emp.branch_name || c.branch_name || '',
+                pan_number: emp.pan_number || c.pan_number || '',
+                doc_aadhaar: emp.doc_aadhaar || c.doc_aadhaar || '',
+                doc_pan: emp.doc_pan || c.doc_pan || '',
+                doc_photo: emp.doc_photo || c.doc_photo || emp.avatar || '',
+                doc_bank_passbook: emp.doc_bank_passbook || c.doc_bank_passbook || '',
+                doc_10th: emp.doc_10th || c.doc_10th || '',
+                doc_12th: emp.doc_12th || c.doc_12th || '',
+                doc_college: emp.doc_college || c.doc_college || '',
+                doc_marksheet: emp.doc_marksheet || c.doc_marksheet || '',
+                avatar: emp.avatar || c.avatar || c.doc_photo || ''
+              };
+            });
+          } catch (e) {}
+        }
       }
-      setEmployees(mergedData);
+
+      // Strict deduplication by emp_id AND normalized name to ensure strictly unique staff
+      const seenIds = new Set();
+      const seenNames = new Set();
+      const uniqueEmployees = [];
+      for (const emp of mergedData) {
+        const idKey = (emp.emp_id || emp.id || '').toString().trim().toUpperCase();
+        const nameKey = (emp.name || '').toString().trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (idKey && seenIds.has(idKey)) continue;
+        if (nameKey && seenNames.has(nameKey)) continue;
+        if (idKey) seenIds.add(idKey);
+        if (nameKey) seenNames.add(nameKey);
+        uniqueEmployees.push(emp);
+      }
+
+      setEmployees(uniqueEmployees);
     } catch (err) {
       console.error('Error loading employees:', err);
     }
