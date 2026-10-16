@@ -107,7 +107,7 @@ export default function AttendanceReports() {
     if (r.status === 'late') deptStats[dept].late += 1;
   });
 
-  // Calculate Employee Payroll & Zero-Absent Double Salary
+  // Calculate Employee Payroll & Full Attendance (+2 Days Extra Salary)
   const payrollStats = useMemo(() => {
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
@@ -132,11 +132,11 @@ export default function AttendanceReports() {
       const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
       const earnedBase = Math.max(0, Math.round(baseSalary - deductions));
 
-      // 100% Zero-Absent Double Salary Qualification Rule:
-      // Zero absences recorded in the month with at least 1 shift logged
-      const isDoubleSalaryEligible = absent === 0 && halfday === 0 && present > 0;
-      const doubleSalaryBonus = isDoubleSalaryEligible ? baseSalary : 0;
-      const netTotalPayout = earnedBase + doubleSalaryBonus + otPay;
+      // Policy: If 100% full present (0 absences, 0 half-days, with at least 1 shift logged),
+      // employee receives 2 days extra salary bonus!
+      const isFullPresentEligible = absent === 0 && halfday === 0 && present > 0;
+      const fullPresentBonus = isFullPresentEligible ? Math.round(2 * dailyRate) : 0;
+      const netTotalPayout = earnedBase + fullPresentBonus + otPay;
 
       return {
         emp_id: emp.emp_id,
@@ -145,14 +145,15 @@ export default function AttendanceReports() {
         role: emp.role || 'Staff',
         avatar: emp.avatar,
         baseSalary,
+        dailyRate: Math.round(dailyRate),
         present,
         absent,
         halfday,
         otMinutes,
         otPay,
         earnedBase,
-        isDoubleSalaryEligible,
-        doubleSalaryBonus,
+        isFullPresentEligible,
+        fullPresentBonus,
         netTotalPayout
       };
     });
@@ -160,8 +161,8 @@ export default function AttendanceReports() {
 
   // Aggregate Payroll Totals
   const totalPayroll = payrollStats.reduce((sum, p) => sum + p.netTotalPayout, 0);
-  const totalDoubleBonuses = payrollStats.reduce((sum, p) => sum + p.doubleSalaryBonus, 0);
-  const doubleSalaryCount = payrollStats.filter(p => p.isDoubleSalaryEligible).length;
+  const totalFullPresentBonuses = payrollStats.reduce((sum, p) => sum + p.fullPresentBonus, 0);
+  const fullPresentCount = payrollStats.filter(p => p.isFullPresentEligible).length;
   const totalOtDisbursed = payrollStats.reduce((sum, p) => sum + p.otPay, 0);
 
   return (
@@ -171,7 +172,7 @@ export default function AttendanceReports() {
         <div>
           <h2 className="text-lg font-bold text-slate-800">Attendance Analytics & Payroll Reports</h2>
           <p className="text-xs text-slate-500">
-            Generate monthly timesheets, department metrics, work-hour reports, and download payroll-ready CSVs with Zero-Absent Double Salary calculations.
+            Generate monthly timesheets, department metrics, work-hour reports, and download payroll-ready CSVs with Full Present (+2 Days Extra Salary) calculations.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -187,7 +188,7 @@ export default function AttendanceReports() {
             className="flex items-center space-x-1.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition-all"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Payroll CSV (2× Double Salary)</span>
+            <span>Export Payroll CSV (+2 Days Bonus)</span>
           </button>
         </div>
       </div>
@@ -274,21 +275,21 @@ export default function AttendanceReports() {
           <div>
             <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-bold mb-1.5 border border-amber-300">
               <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Official Company Policy • 100% Zero-Absent Double Salary</span>
+              <span>Official Company Policy • Full Present = 2 Days Extra Salary</span>
             </div>
             <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center space-x-2">
               <Award className="w-5 h-5 text-amber-600" />
-              <span>Monthly Payroll & Double Salary Tracker</span>
+              <span>Monthly Payroll & Full Attendance Bonus Tracker</span>
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
-              Employees with <strong>0 absences</strong> in the month receive an <strong>extra 100% Base Salary Bonus (2× Double Salary)</strong> plus Overtime.
+              Employees with <strong>100% full attendance (0 absences)</strong> in the month receive an <strong>extra 2 days salary bonus (+2 Days Salary)</strong> plus Overtime.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <span className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded-xl font-bold text-xs border border-amber-300 flex items-center space-x-1.5">
               <Award className="w-4 h-4 text-amber-700" />
-              <span>{doubleSalaryCount} Qualified for 2× Salary</span>
+              <span>{fullPresentCount} Qualified for +2 Days Salary</span>
             </span>
           </div>
         </div>
@@ -304,11 +305,11 @@ export default function AttendanceReports() {
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-amber-200 bg-amber-50/20">
-            <span className="text-[10px] text-amber-800 uppercase font-bold block">Double Salary Bonuses</span>
+            <span className="text-[10px] text-amber-800 uppercase font-bold block">Full Present Bonuses (+2 Days)</span>
             <div className="text-lg font-black text-amber-800 font-mono mt-0.5">
-              +₹{totalDoubleBonuses.toLocaleString('en-IN')}
+              +₹{totalFullPresentBonuses.toLocaleString('en-IN')}
             </div>
-            <span className="text-[10px] text-amber-700 font-semibold">{doubleSalaryCount} staff with 0 absences</span>
+            <span className="text-[10px] text-amber-700 font-semibold">{fullPresentCount} staff with 0 absences</span>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-slate-200">
@@ -328,7 +329,7 @@ export default function AttendanceReports() {
           </div>
         </div>
 
-        {/* Payroll & Double Salary Table */}
+        {/* Payroll & Full Attendance Bonus Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200">
@@ -338,7 +339,7 @@ export default function AttendanceReports() {
                 <th className="px-4 py-3">Base Salary</th>
                 <th className="px-4 py-3">Attendance</th>
                 <th className="px-4 py-3">Overtime</th>
-                <th className="px-4 py-3">Zero-Absent Double Salary Status</th>
+                <th className="px-4 py-3">Full Present Bonus (+2 Days)</th>
                 <th className="px-4 py-3 text-right">Net Estimated Payout</th>
               </tr>
             </thead>
@@ -364,6 +365,7 @@ export default function AttendanceReports() {
                   </td>
                   <td className="px-4 py-3 font-mono font-bold text-slate-800">
                     ₹{p.baseSalary.toLocaleString('en-IN')}
+                    <span className="block text-[10px] text-slate-400 font-normal">₹{p.dailyRate}/day</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-1.5 text-[11px]">
@@ -391,10 +393,10 @@ export default function AttendanceReports() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {p.isDoubleSalaryEligible ? (
+                    {p.isFullPresentEligible ? (
                       <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black border border-amber-300 shadow-2xs">
                         <Award className="w-3.5 h-3.5 text-amber-600" />
-                        <span>🏆 2× Double Salary (+₹{p.doubleSalaryBonus.toLocaleString('en-IN')})</span>
+                        <span>🏆 +2 Days Salary (+₹{p.fullPresentBonus.toLocaleString('en-IN')})</span>
                       </span>
                     ) : (
                       <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium border border-slate-200">
@@ -407,7 +409,7 @@ export default function AttendanceReports() {
                       ₹{p.netTotalPayout.toLocaleString('en-IN')}
                     </div>
                     <span className="text-[10px] text-slate-400 block">
-                      {p.isDoubleSalaryEligible ? 'Double Base + OT' : 'Base - LOP + OT'}
+                      {p.isFullPresentEligible ? 'Base + 2 Days Bonus + OT' : 'Base - LOP + OT'}
                     </span>
                   </td>
                 </tr>

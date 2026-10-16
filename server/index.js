@@ -1651,7 +1651,7 @@ app.get('/api/reports/export', (req, res) => {
   }
 });
 
-// Monthly Payroll & Zero-Absent Double Salary CSV Export
+// Monthly Payroll & Full Attendance (+2 Days Salary Extra) CSV Export
 app.get('/api/reports/payroll-export', (req, res) => {
   try {
     const { startDate, endDate, department } = req.query;
@@ -1671,7 +1671,7 @@ app.get('/api/reports/payroll-export', (req, res) => {
     if (endDate) { attQuery += ' AND date <= ?'; attParams.push(endDate); }
     const attendanceRecords = db.prepare(attQuery).all(...attParams);
 
-    let csv = 'Employee ID,Employee Name,Department,Role,Base Salary (INR),Days Present,Days Absent,Half Days,OT Minutes,OT Pay (INR),Zero Absent Double Salary Qualified,Double Salary Bonus (INR),Estimated Net Payout (INR)\r\n';
+    let csv = 'Employee ID,Employee Name,Department,Role,Base Salary (INR),Days Present,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Estimated Net Payout (INR)\r\n';
 
     for (const emp of employees) {
       const records = attendanceRecords.filter(r => r.emp_id === emp.emp_id);
@@ -1695,11 +1695,12 @@ app.get('/api/reports/payroll-export', (req, res) => {
       const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
       const earnedBase = Math.max(0, Math.round(baseSalary - deductions));
 
-      const isDoubleSalary = absent === 0 && halfday === 0 && present > 0;
-      const doubleBonus = isDoubleSalary ? baseSalary : 0;
-      const netPayout = earnedBase + doubleBonus + otPay;
+      // Policy: If 100% full present (0 absences, 0 half-days, at least 1 day worked), 2 days salary extra bonus!
+      const isFullPresent = absent === 0 && halfday === 0 && present > 0;
+      const bonus2Days = isFullPresent ? Math.round(2 * dailyRate) : 0;
+      const netPayout = earnedBase + bonus2Days + otPay;
 
-      csv += `"${emp.emp_id}","${emp.name}","${emp.department}","${emp.role}",${baseSalary},${present},${absent},${halfday},${otMinutes},${otPay},"${isDoubleSalary ? 'YES (Qualified 2x)' : 'NO'}",${doubleBonus},${netPayout}\r\n`;
+      csv += `"${emp.emp_id}","${emp.name}","${emp.department}","${emp.role}",${baseSalary},${present},${absent},${halfday},${otMinutes},${otPay},"${isFullPresent ? 'YES (Qualified +2 Days Extra)' : 'NO'}",${bonus2Days},${netPayout}\r\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
