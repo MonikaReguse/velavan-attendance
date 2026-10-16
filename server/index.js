@@ -1659,7 +1659,7 @@ app.get('/api/backup', (req, res) => {
     const attendance = db.prepare('SELECT * FROM attendance').all();
     const settings = db.prepare('SELECT * FROM settings').all();
     const leave_requests = db.prepare('SELECT * FROM leave_requests').all();
-    res.json({
+    const payload = {
       timestamp: new Date().toISOString(),
       organization: 'Velavan Properties',
       employeeCount: employees.length,
@@ -1668,16 +1668,22 @@ app.get('/api/backup', (req, res) => {
       settings,
       leave_requests,
       leaves: leave_requests
+    };
+    res.json({
+      success: true,
+      ...payload,
+      data: payload
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, success: false });
   }
 });
 
 // Full Cloud Database Restore
 app.post('/api/backup/restore', (req, res) => {
   try {
-    const { employees, attendance, settings, leaves, leave_requests } = req.body;
+    const body = req.body?.data || req.body || {};
+    const { employees, attendance, settings, leaves, leave_requests } = body;
     let restoredEmployees = 0;
     let restoredAttendance = 0;
 
@@ -1744,4 +1750,12 @@ if (fs.existsSync(employeeDist)) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Velavan Properties Attendance API Server running on port ${PORT}`);
+
+  // Heartbeat self-ping every 10 minutes to prevent Render idle spin-down
+  setInterval(() => {
+    fetch('https://velavan-attendance.onrender.com/api/health')
+      .then(r => r.json())
+      .then(() => console.log('[Heartbeat] Server pinged successfully'))
+      .catch(() => {});
+  }, 10 * 60 * 1000);
 });

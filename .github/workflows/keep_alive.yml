@@ -1,0 +1,15 @@
+name: Render Backend Keep-Alive Cron
+
+on:
+  schedule:
+    # Runs every 10 minutes to prevent Render 15-minute inactivity spin down
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Live Backend API
+        run: |
+          curl -s -f --retry 3 "https://velavan-attendance.onrender.com/api/health" || echo "Ping dispatched"

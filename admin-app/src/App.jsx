@@ -65,15 +65,13 @@ export default function App() {
       localStorage.removeItem('velavan_deleted_ids');
     } catch (e) {}
 
-    // Triple-Layer Disaster Recovery: Auto-sync between browser and server
+    // Triple-Layer Disaster Recovery: Smart Two-Way Merge between browser and server
     const runDisasterRecovery = async () => {
       try {
-        const [empData, backupData] = await Promise.all([
-          api.getEmployees().catch(() => []),
-          api.getBackup().catch(() => null)
-        ]);
+        const backupData = await api.getBackup().catch(() => null);
+        const serverEmps = Array.isArray(backupData?.employees) ? backupData.employees : [];
+        const serverAtts = Array.isArray(backupData?.attendance) ? backupData.attendance : [];
 
-        const serverEmpCount = Array.isArray(empData) ? empData.length : 0;
         const localBackupStr = localStorage.getItem('velavan_master_database_backup');
         let localBackup = null;
         if (localBackupStr) {
@@ -81,15 +79,33 @@ export default function App() {
             localBackup = JSON.parse(localBackupStr);
           } catch (e) {}
         }
+        const localEmps = Array.isArray(localBackup?.employees) ? localBackup.employees : [];
+        const localAtts = Array.isArray(localBackup?.attendance) ? localBackup.attendance : [];
 
-        if (serverEmpCount > 0 && backupData && backupData.employees && backupData.employees.length > 0) {
-          // Server is healthy -> refresh browser disaster backup
-          localStorage.setItem('velavan_master_database_backup', JSON.stringify(backupData));
-        } else if (serverEmpCount === 0 && localBackup && Array.isArray(localBackup.employees) && localBackup.employees.length > 0) {
-          // Server rebooted empty -> auto-restore from browser master backup
-          console.warn('[Disaster Recovery] Server is empty on wake-up. Auto-restoring from browser backup...');
-          await api.restoreBackup(localBackup);
+        // Check if server is missing any attendance records present in local master backup
+        const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
+        const missingAtts = localAtts.filter(a => !serverAttKeys.has(`${a.emp_id}_${a.date}`));
+
+        // Check if server is missing any employees present in local master backup
+        const serverEmpKeys = new Set(serverEmps.map(e => e.emp_id));
+        const missingEmps = localEmps.filter(e => !serverEmpKeys.has(e.emp_id));
+
+        if (missingAtts.length > 0 || missingEmps.length > 0) {
+          console.warn(`[Disaster Recovery] Server restart detected! Restoring ${missingEmps.length} missing employees and ${missingAtts.length} attendance records from browser backup...`);
+          const mergedPayload = {
+            employees: [...serverEmps, ...missingEmps],
+            attendance: [...serverAtts, ...missingAtts],
+            leave_requests: backupData?.leave_requests || localBackup?.leave_requests || []
+          };
+          await api.restoreBackup(mergedPayload).catch(console.error);
+          localStorage.setItem('velavan_master_database_backup', JSON.stringify({
+            timestamp: new Date().toISOString(),
+            ...mergedPayload
+          }));
           window.dispatchEvent(new CustomEvent('velavan_data_restored'));
+        } else if (serverEmps.length > 0) {
+          // Server is up to date -> save latest master backup in local storage
+          localStorage.setItem('velavan_master_database_backup', JSON.stringify(backupData));
         }
       } catch (err) {
         console.error('[Disaster Recovery Sync Error]:', err);
