@@ -159,8 +159,21 @@ export default function EmployeeDirectory({ setActiveTab }) {
             const validEmpIds = new Set(mergedData.map(e => String(e.emp_id)));
             const validIds = new Set(mergedData.map(e => String(e.id)));
 
-            // Clean up any stale/ghost entries from cache so old test data is completely eradicated
+            // If any cached profile matches an official employee by name, seamlessly transfer bank details & docs to their official ID
             let cacheDirty = false;
+            for (const [key, c] of Object.entries(cached)) {
+              if (c && c.name) {
+                const cleanName = c.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                const matchingEmp = mergedData.find(e => (e.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') === cleanName);
+                if (matchingEmp && matchingEmp.emp_id && key !== matchingEmp.emp_id) {
+                  cached[matchingEmp.emp_id] = { ...(cached[matchingEmp.emp_id] || {}), ...c, emp_id: matchingEmp.emp_id, id: matchingEmp.id };
+                  delete cached[key];
+                  cacheDirty = true;
+                }
+              }
+            }
+
+            // Clean up any remaining orphaned ghost entries from cache so old test data is completely eradicated
             for (const key of Object.keys(cached)) {
               if (!validEmpIds.has(key) && !validIds.has(key)) {
                 delete cached[key];

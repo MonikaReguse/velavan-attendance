@@ -97,10 +97,12 @@ export default function App() {
           // Check if local backup has rich employee details (bank details, salary, docs) that server might have lost on restart:
           const serverEmpKeys = new Set(serverEmps.map(e => e.emp_id));
           const localEmpMap = new Map(localEmps.map(e => [e.emp_id, e]));
+          const localEmpNameMap = new Map(localEmps.filter(e => e.name).map(e => [e.name.trim().toLowerCase().replace(/[^a-z0-9]/g, ''), e]));
 
           let profileEnriched = false;
           const mergedServerEmps = serverEmps.map(sEmp => {
-            const lEmp = localEmpMap.get(sEmp.emp_id);
+            const cleanName = (sEmp.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            const lEmp = localEmpMap.get(sEmp.emp_id) || localEmpNameMap.get(cleanName);
             if (!lEmp) return sEmp;
             let updated = { ...sEmp };
             const fieldsToCheck = [
