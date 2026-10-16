@@ -55,8 +55,9 @@ export default function AdminDashboard({ setActiveTab }) {
         try { localStorage.setItem('velavan_dashboard_summary', JSON.stringify(sumRes)); } catch {}
       }
       if (attRes) {
-        setTodayAttendance(attRes);
-        try { localStorage.setItem('velavan_today_attendance', JSON.stringify(attRes)); } catch {}
+        const cleanToday = (attRes || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+        setTodayAttendance(cleanToday);
+        try { localStorage.setItem('velavan_today_attendance', JSON.stringify(cleanToday)); } catch {}
       }
       if (Array.isArray(empRes) && empRes.length > 0) {
         setEmployees(empRes);
@@ -238,16 +239,26 @@ export default function AdminDashboard({ setActiveTab }) {
               </div>
             ) : (
               todayAttendance.map((rec) => {
+                const empInfo = employees.find(e => e.emp_id === rec.emp_id) || {};
+                const displayName = (rec.employee_name && !rec.employee_name.startsWith('['))
+                  ? rec.employee_name
+                  : (empInfo.name || rec.emp_id);
+                const displayDept = rec.department || empInfo.department || 'Operations';
+                const displayRole = rec.role || empInfo.role || 'Staff';
+                const displayAvatar = resolvePhotoUrl(rec.punch_photo || rec.avatar || empInfo.avatar, displayName);
+
                 const isLate = rec.status === 'late';
                 const isHalfDay = rec.status === 'half_day';
+                const isOngoing = !rec.clock_out || rec.clock_out === rec.clock_in;
+
                 return (
                   <div key={rec.id} className="p-3.5 hover:bg-slate-50 transition-colors flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div className="relative">
                         <img
-                          src={resolvePhotoUrl(rec.punch_photo || rec.avatar, rec.employee_name)}
-                          alt={rec.employee_name}
-                          onError={(e) => handleImageError(e, rec.employee_name)}
+                          src={displayAvatar}
+                          alt={displayName}
+                          onError={(e) => handleImageError(e, displayName)}
                           className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100"
                         />
                         {rec.method === 'facelock' && (
@@ -261,11 +272,11 @@ export default function AdminDashboard({ setActiveTab }) {
                       </div>
                       <div>
                         <div className="flex items-center space-x-2">
-                          <h4 className="text-xs font-bold text-slate-800">{rec.employee_name}</h4>
+                          <h4 className="text-xs font-bold text-slate-800">{displayName}</h4>
                           <span className="text-[10px] text-slate-400 font-mono">({rec.emp_id})</span>
                         </div>
                         <p className="text-[11px] text-slate-500">
-                          {rec.department} • {rec.role}
+                          {displayDept} • {displayRole}
                         </p>
                       </div>
                     </div>
@@ -274,7 +285,7 @@ export default function AdminDashboard({ setActiveTab }) {
                       <div>
                         <div className="text-xs font-semibold text-slate-700 font-mono">
                           In: {formatTime(rec.clock_in)}
-                          {rec.clock_out && <span className="text-slate-400 ml-1.5 font-normal">| Out: {formatTime(rec.clock_out)}</span>}
+                          {!isOngoing && rec.clock_out && <span className="text-slate-400 ml-1.5 font-normal">| Out: {formatTime(rec.clock_out)}</span>}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {rec.total_hours > 0 ? (
@@ -286,7 +297,9 @@ export default function AdminDashboard({ setActiveTab }) {
                                 </span>
                               )}
                             </span>
-                          ) : 'Shift in progress'}
+                          ) : (
+                            <span className="text-emerald-600 font-medium">Shift in progress</span>
+                          )}
                         </div>
                       </div>
 

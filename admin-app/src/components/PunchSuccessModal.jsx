@@ -27,7 +27,8 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
   if (!punchResult || !punchResult.employee) return null;
 
   const { employee, attendance, action, message, status } = punchResult;
-  const isClockIn = action === 'clock_in';
+  const isAlreadyClockedIn = action === 'already_clocked_in' || status === 'already_clocked_in';
+  const isClockIn = action === 'clock_in' || isAlreadyClockedIn;
   const isLate = attendance?.status === 'late' || (attendance?.clock_in && attendance.clock_in > '09:40:00');
   const hasOt = attendance?.ot_hours > 0;
 
@@ -78,7 +79,7 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
             <span className="text-[11px] text-slate-400 uppercase font-semibold block">Action</span>
             <span className="text-sm font-bold text-white capitalize flex items-center space-x-1 mt-0.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>{isClockIn ? 'Clocked In' : 'Clocked Out'}</span>
+              <span>{isAlreadyClockedIn ? 'Already In' : isClockIn ? 'Clocked In' : 'Clocked Out'}</span>
             </span>
           </div>
 
@@ -113,19 +114,22 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
 
         {/* Office Shift Rules Reminder */}
         <div className="mt-4 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 text-left">
-          {isClockIn && isLate && (
+          {isAlreadyClockedIn ? (
+            <p className="text-emerald-300 font-medium flex items-center justify-center space-x-1">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Already clocked in for today at {formatTime(attendance?.clock_in)}. Welcome!</span>
+            </p>
+          ) : isClockIn && isLate ? (
             <p className="text-amber-300 font-medium flex items-center space-x-1">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Morning arrival after 09:40 AM marked as Late Arrival.</span>
             </p>
-          )}
-          {!isClockIn && hasOt && (
+          ) : !isClockIn && hasOt ? (
             <p className="text-blue-300 font-medium flex items-center space-x-1">
               <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>Evening work past 20-min buffer calculated as Overtime (+{attendance.ot_minutes ? attendance.ot_minutes : Math.round(attendance.ot_hours * 60)} mins).</span>
             </p>
-          )}
-          {(!isLate || !isClockIn) && !hasOt && (
+          ) : (
             <p className="text-slate-400 text-center">
               Office Hours: 09:30 AM – 06:15 PM. Have a productive day!
             </p>

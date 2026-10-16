@@ -21,10 +21,17 @@ export default function AttendanceLogs() {
       const b = localStorage.getItem('velavan_master_database_backup');
       if (b) {
         const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance;
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
+          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+        }
       }
       const l = localStorage.getItem('velavan_attendance_logs_cache');
-      if (l) return JSON.parse(l);
+      if (l) {
+        const parsed = JSON.parse(l);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+        }
+      }
     } catch {}
     return [];
   });
@@ -82,9 +89,10 @@ export default function AttendanceLogs() {
       setLoading(true);
       const data = await api.getAttendanceHistory(filters);
       if (Array.isArray(data)) {
-        setLogs(data);
+        const cleanData = data.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+        setLogs(cleanData);
         try {
-          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(data));
+          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(cleanData));
         } catch (e) {}
       }
     } catch (err) {
@@ -253,14 +261,31 @@ export default function AttendanceLogs() {
             <tbody className="divide-y divide-slate-100">
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-4 py-8 text-center text-slate-400">
-                    No attendance records found for current criteria.
+                  <td colSpan="9" className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-2 text-slate-400">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-1">
+                        <ClipboardList className="w-6 h-6 stroke-1 text-slate-400" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-700">No Attendance Marked Yet</p>
+                      <p className="text-xs text-slate-400 max-w-sm">
+                        Attendance records are displayed only for dates on which employees have punched in at the FaceLock terminal.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => {
+                  const empInfo = employees.find(e => e.emp_id === log.emp_id) || {};
+                  const displayName = (log.employee_name && !log.employee_name.startsWith('[')) 
+                    ? log.employee_name 
+                    : (empInfo.name || log.emp_id);
+                  const displayDept = log.department || empInfo.department || 'Operations';
+                  const displayAvatar = resolvePhotoUrl(log.punch_photo || log.avatar || empInfo.avatar, displayName);
+
                   const isLate = log.status === 'late';
                   const isHalfDay = log.status === 'half_day';
+                  const isAbsent = log.status === 'absent';
+                  const isOngoing = !log.clock_out || log.clock_out === log.clock_in;
 
                   return (
                     <tr key={log.id} className="hover:bg-slate-50 transition-colors">
@@ -270,24 +295,37 @@ export default function AttendanceLogs() {
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2.5">
                           <img
-                            src={resolvePhotoUrl(log.punch_photo || log.avatar, log.employee_name)}
-                            alt={log.employee_name}
-                            onError={(e) => handleImageError(e, log.employee_name)}
+                            src={displayAvatar}
+                            alt={displayName}
+                            onError={(e) => handleImageError(e, displayName)}
                             className="w-7 h-7 rounded-full object-cover border border-slate-200 bg-slate-100"
                           />
                           <div>
-                            <span className="font-bold text-slate-800">{log.employee_name}</span>
+                            <span className="font-bold text-slate-800">{displayName}</span>
                             <span className="text-[10px] text-slate-400 font-mono ml-1.5">({log.emp_id})</span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{log.department}</td>
+                      <td className="px-4 py-3 text-slate-600">{displayDept}</td>
                       <td className="px-4 py-3 font-mono text-slate-700 font-semibold">{formatTime(log.clock_in)}</td>
                       <td className="px-4 py-3 font-mono text-slate-700">
-                        {log.clock_out ? formatTime(log.clock_out) : <span className="text-emerald-600 italic">In progress...</span>}
+                        {!isOngoing ? (
+                          formatTime(log.clock_out)
+                        ) : (
+                          <span className="inline-flex items-center text-emerald-600 font-medium italic">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
+                            In progress...
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-800">
-                        {log.total_hours ? `${log.total_hours}h` : '-'}
+                        {log.total_hours > 0 ? (
+                          `${log.total_hours}h`
+                        ) : isOngoing ? (
+                          <span className="text-slate-400 font-normal italic">Active</span>
+                        ) : (
+                          '0h'
+                        )}
                         {(log.ot_minutes > 0 || log.ot_hours > 0) && (
                           <span className="block text-[10px] text-amber-600 font-bold">
                             +{log.ot_minutes ? log.ot_minutes : Math.round(log.ot_hours * 60)} mins OT
@@ -296,15 +334,17 @@ export default function AttendanceLogs() {
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                             isLate
                               ? 'bg-amber-100 text-amber-800 border border-amber-200'
                               : isHalfDay
                               ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                              : isAbsent
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           }`}
                         >
-                          {isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : 'Present'}
+                          {isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : isAbsent ? 'Absent' : 'Present'}
                         </span>
                       </td>
                       <td className="px-4 py-3">

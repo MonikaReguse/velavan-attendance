@@ -22,7 +22,9 @@ export default function AttendanceReports() {
       const b = localStorage.getItem('velavan_master_database_backup');
       if (b) {
         const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance;
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
+          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+        }
       }
     } catch {}
     return [];
@@ -64,7 +66,8 @@ export default function AttendanceReports() {
         api.getAttendanceHistory(f),
         api.getEmployees()
       ]);
-      setData(resHistory || []);
+      const cleanHistory = (resHistory || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+      setData(cleanHistory);
       setEmployees(resEmployees || []);
     } catch (err) {
       console.error('Error loading report data:', err);

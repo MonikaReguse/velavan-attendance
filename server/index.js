@@ -1109,11 +1109,31 @@ app.post('/api/attendance/punch', (req, res) => {
     if (mode === 'auto') {
       if (!existing) {
         action = 'in';
-      } else if (!existing.clock_out) {
-        action = 'out';
       } else {
-        // Already clocked in and out today
-        action = 'out'; // Update clock out
+        // Employee has already clocked in today. Check time difference:
+        const [hIn, mIn] = existing.clock_in.split(':').map(Number);
+        const [hCur, mCur] = currentTime.split(':').map(Number);
+        const diffMinutes = (hCur * 60 + mCur) - (hIn * 60 + mIn);
+
+        // Require at least 15 minutes between Clock-In and Clock-Out in Auto Mode
+        // This prevents an employee who just clocked in from being accidentally clocked out immediately with 0 hours!
+        if (diffMinutes < 15 && !existing.clock_out) {
+          return res.json({
+            status: 'already_clocked_in',
+            action: 'already_clocked_in',
+            message: `Already clocked in at ${existing.clock_in} (${existing.status === 'late' ? 'Late Arrival' : 'Present - On Time'}). Welcome!`,
+            employee: {
+              id: employee.id,
+              emp_id: employee.emp_id,
+              name: employee.name,
+              role: employee.role,
+              department: employee.department,
+              avatar: employee.avatar
+            },
+            attendance: existing
+          });
+        }
+        action = 'out';
       }
     }
 

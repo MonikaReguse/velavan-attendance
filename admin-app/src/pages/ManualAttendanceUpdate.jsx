@@ -42,7 +42,9 @@ export default function ManualAttendanceUpdate() {
       const b = localStorage.getItem('velavan_master_database_backup');
       if (b) {
         const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance.slice(0, 50);
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
+          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14').slice(0, 50);
+        }
       }
     } catch {}
     return [];
@@ -76,7 +78,8 @@ export default function ManualAttendanceUpdate() {
         api.getAttendanceHistory({ limit: 50 })
       ]);
       setEmployees(empList || []);
-      setRecentLogs(historyList || []);
+      const cleanHistory = (historyList || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+      setRecentLogs(cleanHistory);
 
       if (empList && empList.length > 0 && !selectedEmpId) {
         setSelectedEmpId(empList[0].emp_id);

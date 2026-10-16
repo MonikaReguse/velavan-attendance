@@ -60,9 +60,25 @@ export default function App() {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);
 
-    // Auto-purge toxic deleted IDs
+    // Auto-purge toxic deleted IDs and legacy pre-seeded mock attendance
     try {
       localStorage.removeItem('velavan_deleted_ids');
+      const purgedKey = 'velavan_mock_attendance_purged_v5';
+      if (!localStorage.getItem(purgedKey)) {
+        localStorage.removeItem('velavan_attendance_logs_cache');
+        localStorage.removeItem('velavan_today_attendance');
+        localStorage.removeItem('velavan_dashboard_summary');
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        if (bStr) {
+          const b = JSON.parse(bStr);
+          if (Array.isArray(b?.attendance)) {
+            // Remove mock records from dates < 2026-10-16 and test punches
+            b.attendance = b.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+          }
+        }
+        localStorage.setItem(purgedKey, 'true');
+      }
     } catch (e) {}
 
     // Triple-Layer Disaster Recovery: Smart Two-Way Merge between browser and server
@@ -70,7 +86,8 @@ export default function App() {
       try {
         const backupData = await api.getBackup().catch(() => null);
         const serverEmps = Array.isArray(backupData?.employees) ? backupData.employees : [];
-        const serverAtts = Array.isArray(backupData?.attendance) ? backupData.attendance : [];
+        const serverAtts = (Array.isArray(backupData?.attendance) ? backupData.attendance : [])
+          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
 
         const localBackupStr = localStorage.getItem('velavan_master_database_backup');
         let localBackup = null;
@@ -80,7 +97,8 @@ export default function App() {
           } catch (e) {}
         }
         const localEmps = Array.isArray(localBackup?.employees) ? localBackup.employees : [];
-        const localAtts = Array.isArray(localBackup?.attendance) ? localBackup.attendance : [];
+        const localAtts = (Array.isArray(localBackup?.attendance) ? localBackup.attendance : [])
+          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
 
         // Also check details cache and directory list cache for richest employee records
         let localCacheList = [];
@@ -192,7 +210,8 @@ export default function App() {
             // Update local backup to match server
             localStorage.setItem('velavan_master_database_backup', JSON.stringify({
               ...backupData,
-              employees: mergedServerEmps
+              employees: mergedServerEmps,
+              attendance: serverAtts
             }));
           }
         }
