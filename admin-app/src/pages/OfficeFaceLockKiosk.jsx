@@ -31,6 +31,7 @@ import {
 import PunchSuccessModal from '../components/PunchSuccessModal';
 import PinFallbackModal from '../components/PinFallbackModal';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { formatTime } from '../services/timeUtils';
 
 export default function OfficeFaceLockKiosk() {
   const [modelReady, setModelReady] = useState(false);
@@ -58,10 +59,10 @@ export default function OfficeFaceLockKiosk() {
   const recentPunchesCooldownRef = useRef(new Map()); // emp_id -> timestamp
   const consecutiveMatchRef = useRef({ empId: null, count: 0 });
 
-  // Live Clock updater
+  // Live Clock updater (12-hour AM/PM format)
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString());
+      setCurrentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -658,10 +659,10 @@ export default function OfficeFaceLockKiosk() {
 
                       <div className="text-right space-y-0.5">
                         <div className="font-mono font-bold text-slate-800 text-[11px]">
-                          IN: {item.clock_in || '--'}
+                          IN: {formatTime(item.clock_in)}
                           {item.clock_out && (
                             <span className="text-blue-600 ml-1.5 font-bold">
-                              OUT: {item.clock_out}
+                              OUT: {formatTime(item.clock_out)}
                             </span>
                           )}
                         </div>

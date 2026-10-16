@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { formatTime } from '../services/timeUtils';
 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(null);
@@ -234,8 +235,8 @@ export default function AdminDashboard({ setActiveTab }) {
                     <div className="flex items-center space-x-4 text-right">
                       <div>
                         <div className="text-xs font-semibold text-slate-700 font-mono">
-                          In: {rec.clock_in}
-                          {rec.clock_out && <span className="text-slate-400 ml-1.5 font-normal">| Out: {rec.clock_out}</span>}
+                          In: {formatTime(rec.clock_in)}
+                          {rec.clock_out && <span className="text-slate-400 ml-1.5 font-normal">| Out: {formatTime(rec.clock_out)}</span>}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {rec.total_hours > 0 ? (

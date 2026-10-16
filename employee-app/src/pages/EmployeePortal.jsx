@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/api';
+import { formatTime } from '../services/timeUtils';
 
 export default function EmployeePortal() {
   const { activeEmployee, employees, officeSettings } = useApp();
@@ -986,7 +987,7 @@ export default function EmployeePortal() {
                           <span className={`font-mono font-bold text-xs ${
                             r.clockIn !== '--' ? (r.clockIn > '09:40:00' ? 'text-amber-700' : 'text-emerald-700') : 'text-slate-400'
                           }`}>
-                            {r.clockIn}
+                            {formatTime(r.clockIn)}
                           </span>
                         </div>
                         <div>
@@ -994,7 +995,7 @@ export default function EmployeePortal() {
                           <span className={`font-mono font-bold text-xs ${
                             r.clockOut !== '--' ? (r.clockOut > '18:15:00' ? 'text-amber-700' : 'text-slate-700') : 'text-slate-400'
                           }`}>
-                            {r.clockOut}
+                            {formatTime(r.clockOut)}
                           </span>
                         </div>
                         <div>
@@ -1126,7 +1127,7 @@ export default function EmployeePortal() {
                         <td className="px-4 py-3 text-slate-800">
                           {r.clockIn !== '--' ? (
                             <span className={r.clockIn > '09:40:00' ? 'text-amber-700 font-bold' : 'text-emerald-700 font-semibold'}>
-                              {r.clockIn}
+                              {formatTime(r.clockIn)}
                             </span>
                           ) : (
                             <span className="text-slate-400">--</span>
@@ -1137,7 +1138,7 @@ export default function EmployeePortal() {
                         <td className="px-4 py-3 text-slate-800">
                           {r.clockOut !== '--' ? (
                             <span className={r.clockOut > '18:15:00' ? 'text-amber-700 font-bold' : 'text-slate-700'}>
-                              {r.clockOut}
+                              {formatTime(r.clockOut)}
                             </span>
                           ) : (
                             <span className="text-slate-400">--</span>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { formatTime } from '../services/timeUtils';
 
 export default function AttendanceLogs() {
   const [logs, setLogs] = useState([]);
@@ -252,9 +253,9 @@ export default function AttendanceLogs() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{log.department}</td>
-                      <td className="px-4 py-3 font-mono text-slate-700 font-semibold">{log.clock_in}</td>
+                      <td className="px-4 py-3 font-mono text-slate-700 font-semibold">{formatTime(log.clock_in)}</td>
                       <td className="px-4 py-3 font-mono text-slate-700">
-                        {log.clock_out || <span className="text-emerald-600 italic">In progress...</span>}
+                        {log.clock_out ? formatTime(log.clock_out) : <span className="text-emerald-600 italic">In progress...</span>}
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-800">
                         {log.total_hours ? `${log.total_hours}h` : '-'}

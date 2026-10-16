@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { CheckCircle2, Clock, Sparkles, X, ScanFace } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { formatTime } from '../services/timeUtils';
 
 export default function PunchSuccessModal({ punchResult, onClose }) {
   useEffect(() => {
@@ -82,7 +83,7 @@ export default function PunchSuccessModal({ punchResult, onClose }) {
           <div>
             <span className="text-[11px] text-slate-400 uppercase font-semibold block">Time</span>
             <span className="text-sm font-mono font-bold text-emerald-400 mt-0.5 block">
-              {isClockIn ? attendance?.clock_in : attendance?.clock_out}
+              {formatTime(isClockIn ? attendance?.clock_in : attendance?.clock_out)}
             </span>
           </div>
 

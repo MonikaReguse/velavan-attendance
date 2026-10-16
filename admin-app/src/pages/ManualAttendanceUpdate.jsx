@@ -22,6 +22,7 @@ import {
   Filter
 } from 'lucide-react';
 import { api } from '../services/api';
+import { formatTime } from '../services/timeUtils';
 
 export default function ManualAttendanceUpdate() {
   const [employees, setEmployees] = useState([]);
@@ -631,7 +632,7 @@ export default function ManualAttendanceUpdate() {
                       {/* Timings row */}
                       <div className="flex items-center justify-between mt-1 text-[11px]">
                         <div className="text-slate-600 font-mono">
-                          {item.clock_in ? `${item.clock_in} → ${item.clock_out || 'In progress'}` : <span className="italic text-slate-400">No punch timings</span>}
+                          {item.clock_in ? `${formatTime(item.clock_in)} → ${item.clock_out ? formatTime(item.clock_out) : 'In progress'}` : <span className="italic text-slate-400">No punch timings</span>}
                         </div>
 
                         {/* Status Badge */}
