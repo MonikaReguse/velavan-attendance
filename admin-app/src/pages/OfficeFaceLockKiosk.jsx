@@ -307,11 +307,18 @@ export default function OfficeFaceLockKiosk() {
 
       const snapshot = captureSnapshot();
 
+      // Get accurate client date and time in local IST
+      const nowObj = new Date();
+      const clientDate = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(nowObj);
+      const clientTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(nowObj);
+
       const result = await api.punchAttendance({
         emp_id: empId,
         mode: mode,
         photoBase64: snapshot,
-        method: 'facelock'
+        method: 'facelock',
+        clientTime,
+        clientDate
       });
 
       if (result.status === 'success' || result.status === 'already_clocked_in') {

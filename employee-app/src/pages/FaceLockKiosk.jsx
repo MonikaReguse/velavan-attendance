@@ -271,11 +271,17 @@ export default function FaceLockKiosk() {
         photoBase64 = snapCanvas.toDataURL('image/jpeg', 0.8);
       }
 
+      const nowObj = new Date();
+      const clientDate = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(nowObj);
+      const clientTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(nowObj);
+
       const res = await api.punch({
         emp_id: employee.emp_id,
         mode: mode,
         photoBase64: photoBase64,
-        method: 'facelock'
+        method: 'facelock',
+        clientTime,
+        clientDate
       });
 
       if (res.status === 'success' || res.status === 'already_clocked_in') {

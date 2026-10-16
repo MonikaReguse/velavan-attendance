@@ -1,3 +1,6 @@
+// Enforce Indian Standard Time (IST, UTC+05:30)
+process.env.TZ = 'Asia/Kolkata';
+
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');

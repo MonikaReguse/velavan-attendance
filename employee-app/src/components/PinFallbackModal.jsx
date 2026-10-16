@@ -32,10 +32,16 @@ export default function PinFallbackModal({ onClose, onPunchSuccess }) {
     try {
       setLoading(true);
       setError('');
+      const nowObj = new Date();
+      const clientDate = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(nowObj);
+      const clientTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(nowObj);
+
       const res = await api.punch({
         pin: pin,
         mode: mode,
-        method: 'pin'
+        method: 'pin',
+        clientTime,
+        clientDate
       });
 
       if (res.status === 'success' || res.status === 'already_clocked_in') {

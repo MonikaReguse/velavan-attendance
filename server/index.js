@@ -1,3 +1,6 @@
+// Force Indian Standard Time (IST, UTC+05:30) across all environments
+process.env.TZ = 'Asia/Kolkata';
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -148,15 +151,25 @@ function calculateOT(timeOut, timeIn = '09:30', officeStartTime = '09:30', offic
   return { otHours, otMinutes };
 }
 
-// Helper: Format date as YYYY-MM-DD
+// Helper: Format date as YYYY-MM-DD in Indian Standard Time (IST, UTC+05:30)
 function getTodayDate() {
-  return new Date().toISOString().split('T')[0];
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
 }
 
-// Helper: Format current time as HH:MM:SS
+// Helper: Format current time as HH:MM:SS in 24-hour Indian Standard Time (IST, UTC+05:30)
 function getCurrentTime() {
-  const d = new Date();
-  return d.toTimeString().split(' ')[0];
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(new Date());
 }
 
 // ---------------- AUTH (PHONE OTP) ----------------
@@ -1037,8 +1050,21 @@ app.post('/api/attendance/punch', (req, res) => {
       return res.status(404).json({ error: 'Employee not found or unverified' });
     }
 
-    const today = getTodayDate();
-    const currentTime = getCurrentTime();
+    // Ensure Indian Standard Time (IST) date and time
+    const today = (req.body.clientDate && /^\d{4}-\d{2}-\d{2}$/.test(req.body.clientDate))
+      ? req.body.clientDate
+      : getTodayDate();
+
+    let currentTime = req.body.clientTime;
+    if (currentTime && /^\d{1,2}:\d{2}(:\d{2})?$/.test(currentTime)) {
+      const parts = currentTime.split(':');
+      const h = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      const s = (parts[2] || '00').padStart(2, '0');
+      currentTime = `${h}:${m}:${s}`;
+    } else {
+      currentTime = getCurrentTime();
+    }
     const settings = getSettings();
 
     // Save snapshot if provided
