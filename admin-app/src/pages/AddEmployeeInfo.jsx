@@ -31,11 +31,13 @@ import {
   Image as ImageIcon,
   Paperclip,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { loadFaceModels, getFaceDescriptor } from '../services/faceService';
+import { downloadFile } from '../services/downloadUtils';
 
 export default function AddEmployeeInfo({ setActiveTab }) {
   const defaultFormData = {
@@ -1185,14 +1187,25 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
                 {formData.doc_aadhaar ? (
                   <div className="flex items-center justify-between pt-2 border-t border-emerald-200/60">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'Aadhaar Card', url: formData.doc_aadhaar })}
-                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Preview File</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'Aadhaar Card', url: formData.doc_aadhaar, employeeName: formData.name })}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_aadhaar, `${formData.name || 'Staff'}_Aadhaar_Card`)}
+                        className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center space-x-1"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_aadhaar')}
@@ -1248,14 +1261,25 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
                 {formData.doc_pan ? (
                   <div className="flex items-center justify-between pt-2 border-t border-emerald-200/60">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'PAN Card', url: formData.doc_pan })}
-                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Preview File</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'PAN Card', url: formData.doc_pan, employeeName: formData.name })}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_pan, `${formData.name || 'Staff'}_PAN_Card`)}
+                        className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center space-x-1"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_pan')}
@@ -1311,14 +1335,25 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
                 {(formData.doc_photo || formData.avatar) ? (
                   <div className="flex items-center justify-between pt-2 border-t border-emerald-200/60">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'Employee Photo', url: formData.doc_photo || formData.avatar })}
-                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Preview Photo</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'Employee Photo', url: formData.doc_photo || formData.avatar, employeeName: formData.name })}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview Photo</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_photo || formData.avatar, `${formData.name || 'Staff'}_Photo`)}
+                        className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center space-x-1"
+                        title="Download Photo"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_photo')}
@@ -1374,14 +1409,25 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
                 {formData.doc_bank_passbook ? (
                   <div className="flex items-center justify-between pt-2 border-t border-emerald-200/60">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'Bank First Page / Passbook', url: formData.doc_bank_passbook })}
-                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Preview File</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'Bank First Page / Passbook', url: formData.doc_bank_passbook, employeeName: formData.name })}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_bank_passbook, `${formData.name || 'Staff'}_Bank_Passbook`)}
+                        className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center space-x-1"
+                        title="Download Document"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_bank_passbook')}
@@ -1428,13 +1474,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <p className="text-[10px] text-slate-400 mb-2">SSLC / 10th Board Certificate</p>
                 {formData.doc_10th ? (
                   <div className="flex items-center justify-between text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: '10th Marksheet', url: formData.doc_10th })}
-                      className="text-blue-700 hover:underline font-bold"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: '10th Marksheet', url: formData.doc_10th, employeeName: formData.name })}
+                        className="text-blue-700 hover:underline font-bold"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_10th, `${formData.name || 'Staff'}_10th_Marksheet`)}
+                        className="text-emerald-700 hover:underline font-bold flex items-center space-x-0.5"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3 h-3 inline" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_10th')}
@@ -1468,13 +1525,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <p className="text-[10px] text-slate-400 mb-2">HSC / 12th Board Certificate</p>
                 {formData.doc_12th ? (
                   <div className="flex items-center justify-between text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: '12th Marksheet', url: formData.doc_12th })}
-                      className="text-blue-700 hover:underline font-bold"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: '12th Marksheet', url: formData.doc_12th, employeeName: formData.name })}
+                        className="text-blue-700 hover:underline font-bold"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_12th, `${formData.name || 'Staff'}_12th_Marksheet`)}
+                        className="text-emerald-700 hover:underline font-bold flex items-center space-x-0.5"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3 h-3 inline" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_12th')}
@@ -1508,13 +1576,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <p className="text-[10px] text-slate-400 mb-2">Graduation / Degree Certificate</p>
                 {formData.doc_college ? (
                   <div className="flex items-center justify-between text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'College Degree Certificate', url: formData.doc_college })}
-                      className="text-blue-700 hover:underline font-bold"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'College Degree Certificate', url: formData.doc_college, employeeName: formData.name })}
+                        className="text-blue-700 hover:underline font-bold"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_college, `${formData.name || 'Staff'}_College_Degree`)}
+                        className="text-emerald-700 hover:underline font-bold flex items-center space-x-0.5"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3 h-3 inline" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_college')}
@@ -1548,13 +1627,24 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <p className="text-[10px] text-slate-400 mb-2">Consolidated / Semester Grade Sheet</p>
                 {formData.doc_marksheet ? (
                   <div className="flex items-center justify-between text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc({ title: 'College Marksheet', url: formData.doc_marksheet })}
-                      className="text-blue-700 hover:underline font-bold"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ title: 'College Marksheet', url: formData.doc_marksheet, employeeName: formData.name })}
+                        className="text-blue-700 hover:underline font-bold"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(formData.doc_marksheet, `${formData.name || 'Staff'}_College_Marksheet`)}
+                        className="text-emerald-700 hover:underline font-bold flex items-center space-x-0.5"
+                        title="Download Certificate"
+                      >
+                        <Download className="w-3 h-3 inline" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveDoc('doc_marksheet')}
@@ -1590,11 +1680,20 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                   <h4 className="font-bold text-slate-800 text-sm">{previewDoc.title}</h4>
                 </div>
                 <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(previewDoc.url, `${previewDoc.employeeName || formData.name || 'Staff'}_${previewDoc.title}`)}
+                    className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center space-x-1.5 px-3 py-1.5 rounded-lg shadow-xs transition-colors"
+                    title="Download Certificate"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
+                  </button>
                   <a
                     href={previewDoc.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center space-x-1 px-2.5 py-1 bg-white rounded-lg border border-slate-200"
+                    className="text-xs text-slate-700 hover:text-slate-900 font-semibold flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors"
                   >
                     <span>Open in New Tab</span>
                     <ExternalLink className="w-3.5 h-3.5" />
