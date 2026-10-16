@@ -74,10 +74,6 @@ export const api = {
     const res = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE' });
     return handleResponse(res);
   },
-  deleteAllEmployees: async () => {
-    const res = await fetch(`${API_BASE}/employees`, { method: 'DELETE' });
-    return handleResponse(res);
-  },
   uploadDocument: (base64, filename, docType) =>
     fetch(`${API_BASE}/upload-document`, {
       method: 'POST',

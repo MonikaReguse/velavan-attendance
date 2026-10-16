@@ -372,14 +372,52 @@ export default function AddEmployeeInfo({ setActiveTab }) {
           const cacheStr = localStorage.getItem('velavan_employee_details_cache') || '{}';
           const cache = JSON.parse(cacheStr);
           const assignedId = res.emp_id || finalEmpId;
+          const fullCreatedEmp = {
+            ...payload,
+            emp_id: assignedId,
+            id: res.id,
+            status: 'active',
+            created_at: new Date().toISOString()
+          };
           if (assignedId) {
-            cache[assignedId] = {
-              ...payload,
-              emp_id: assignedId,
-              id: res.id
-            };
+            cache[assignedId] = fullCreatedEmp;
             localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cache));
           }
+
+          // Immediately update master database backup so disaster recovery preserves new staff
+          const bStr = localStorage.getItem('velavan_master_database_backup');
+          if (bStr) {
+            try {
+              const b = JSON.parse(bStr);
+              if (Array.isArray(b?.employees)) {
+                const idx = b.employees.findIndex(e => e.emp_id === assignedId || String(e.id) === String(res.id));
+                if (idx !== -1) {
+                  b.employees[idx] = { ...b.employees[idx], ...fullCreatedEmp };
+                } else {
+                  b.employees.push(fullCreatedEmp);
+                }
+                localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+              }
+            } catch (e) {}
+          }
+
+          // Also update directory list cache
+          const dirStr = localStorage.getItem('velavan_employee_directory_list');
+          if (dirStr) {
+            try {
+              const dirList = JSON.parse(dirStr);
+              if (Array.isArray(dirList)) {
+                const idx = dirList.findIndex(e => e.emp_id === assignedId || String(e.id) === String(res.id));
+                if (idx !== -1) {
+                  dirList[idx] = { ...dirList[idx], ...fullCreatedEmp };
+                } else {
+                  dirList.push(fullCreatedEmp);
+                }
+                localStorage.setItem('velavan_employee_directory_list', JSON.stringify(dirList));
+              }
+            } catch (e) {}
+          }
+
           localStorage.removeItem('velavan_deleted_ids');
         } catch (e) {}
 

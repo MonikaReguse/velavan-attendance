@@ -46,39 +46,46 @@ function saveDbSnapshot() {
 
 function loadDbSnapshot() {
   try {
-    const empCount = db.prepare('SELECT count(*) as c FROM employees').get().c;
     const snapshotPath = path.join(__dirname, 'db_snapshot.json');
-    if (empCount === 0 && fs.existsSync(snapshotPath)) {
-      console.log('[Snapshot Auto-Restore] Database is empty on startup. Auto-restoring from db_snapshot.json...');
-      const data = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
-      if (data && Array.isArray(data.employees) && data.employees.length > 0) {
-        const restoreTx = db.transaction(() => {
-          for (const emp of data.employees) {
-            const keys = Object.keys(emp).filter(k => k !== 'id');
+    if (!fs.existsSync(snapshotPath)) return;
+
+    const data = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    if (!data || !Array.isArray(data.employees) || data.employees.length === 0) return;
+
+    const currentEmps = db.prepare('SELECT emp_id, name FROM employees').all();
+    const currentEmpKeys = new Set(currentEmps.map(e => e.emp_id));
+
+    // Find any snapshot employees not present in the current database table
+    const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id));
+
+    if (currentEmps.length === 0 || missingEmployees.length > 0) {
+      console.log(`[Snapshot Auto-Restore] Synchronizing database with snapshot (restoring ${missingEmployees.length} missing employees)...`);
+      const restoreTx = db.transaction(() => {
+        for (const emp of data.employees) {
+          const keys = Object.keys(emp).filter(k => k !== 'id');
+          const placeholders = keys.map(() => '?').join(', ');
+          const values = keys.map(k => emp[k]);
+          db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+        }
+        if (Array.isArray(data.attendance)) {
+          for (const att of data.attendance) {
+            const keys = Object.keys(att).filter(k => k !== 'id');
             const placeholders = keys.map(() => '?').join(', ');
-            const values = keys.map(k => emp[k]);
-            db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            const values = keys.map(k => att[k]);
+            db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
           }
-          if (Array.isArray(data.attendance)) {
-            for (const att of data.attendance) {
-              const keys = Object.keys(att).filter(k => k !== 'id');
-              const placeholders = keys.map(() => '?').join(', ');
-              const values = keys.map(k => att[k]);
-              db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
-            }
+        }
+        if (Array.isArray(data.leave_requests)) {
+          for (const l of data.leave_requests) {
+            const keys = Object.keys(l).filter(k => k !== 'id');
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => l[k]);
+            db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
           }
-          if (Array.isArray(data.leave_requests)) {
-            for (const l of data.leave_requests) {
-              const keys = Object.keys(l).filter(k => k !== 'id');
-              const placeholders = keys.map(() => '?').join(', ');
-              const values = keys.map(k => l[k]);
-              db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
-            }
-          }
-        });
-        restoreTx();
-        console.log(`[Snapshot Auto-Restore] Successfully restored ${data.employees.length} employees and ${(data.attendance || []).length} attendance records.`);
-      }
+        }
+      });
+      restoreTx();
+      console.log(`[Snapshot Auto-Restore] Successfully synchronized database to ${data.employees.length} employees.`);
     }
   } catch (err) {
     console.error('[Snapshot Auto-Restore Error]:', err.message);
@@ -513,6 +520,7 @@ app.put('/api/settings', (req, res) => {
       }
     });
     updateMany(req.body);
+    saveDbSnapshot();
     res.json({ success: true, settings: getSettings() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -919,15 +927,8 @@ app.put('/api/employees/:id', (req, res) => {
 });
 
 app.delete('/api/employees', (req, res) => {
-  try {
-    db.prepare('DELETE FROM attendance').run();
-    db.prepare('DELETE FROM leave_requests').run();
-    db.prepare('DELETE FROM employees').run();
-    saveDbSnapshot();
-    res.json({ success: true, message: 'All employees and related records cleared' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  // Bulk deletion is permanently disabled to safeguard official employee data
+  return res.status(403).json({ error: 'Bulk deletion of all staff records is permanently disabled to safeguard employee data.' });
 });
 
 app.delete('/api/employees/:id', (req, res) => {
@@ -1769,7 +1770,7 @@ app.post('/api/backup/restore', (req, res) => {
 const adminDist = path.join(__dirname, '../admin-app/dist');
 if (fs.existsSync(adminDist)) {
   app.use('/admin', express.static(adminDist));
-  app.get('/admin/*', (req, res) => {
+  app.get(/^\/admin(?:\/.*)?$/, (req, res) => {
     res.sendFile(path.join(adminDist, 'index.html'));
   });
 }
@@ -1777,10 +1778,11 @@ if (fs.existsSync(adminDist)) {
 const employeeDist = path.join(__dirname, '../employee-app/dist');
 if (fs.existsSync(employeeDist)) {
   app.use(express.static(employeeDist));
-  app.get('*', (req, res) => {
+  app.use((req, res, next) => {
     if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
-      res.sendFile(path.join(employeeDist, 'index.html'));
+      return res.sendFile(path.join(employeeDist, 'index.html'));
     }
+    next();
   });
 }
 

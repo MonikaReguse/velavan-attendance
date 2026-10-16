@@ -147,9 +147,29 @@ export default function EmployeeDirectory({ setActiveTab }) {
       
       let mergedData = Array.isArray(data) ? [...data] : [];
 
-      // If server returned no data (e.g. cold start / offline), keep saved active staff
+      // If server returned no data (e.g. cold start / offline), keep saved active staff from master backup
       if (mergedData.length === 0) {
         console.log('[Directory] Server returned no staff or is connecting; keeping active roster from local storage.');
+        const backupStr = localStorage.getItem('velavan_master_database_backup');
+        if (backupStr) {
+          try {
+            const parsed = JSON.parse(backupStr);
+            if (Array.isArray(parsed?.employees) && parsed.employees.length > 0) {
+              setEmployees(parsed.employees);
+              return;
+            }
+          } catch (e) {}
+        }
+        const dirStr = localStorage.getItem('velavan_employee_directory_list');
+        if (dirStr) {
+          try {
+            const parsed = JSON.parse(dirStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setEmployees(parsed);
+              return;
+            }
+          } catch (e) {}
+        }
         return;
       }
 
@@ -457,28 +477,36 @@ export default function EmployeeDirectory({ setActiveTab }) {
           if (emp.id) delete cached[String(emp.id)];
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
+
+        // Also remove from master database backup
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        if (bStr) {
+          try {
+            const b = JSON.parse(bStr);
+            if (Array.isArray(b?.employees)) {
+              b.employees = b.employees.filter(e => e.emp_id !== emp.emp_id && String(e.id) !== String(emp.id));
+              localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+            }
+          } catch (e) {}
+        }
+
+        // Also remove from directory list cache
+        const dirStr = localStorage.getItem('velavan_employee_directory_list');
+        if (dirStr) {
+          try {
+            const dirList = JSON.parse(dirStr);
+            if (Array.isArray(dirList)) {
+              const filteredDir = dirList.filter(e => e.emp_id !== emp.emp_id && String(e.id) !== String(emp.id));
+              localStorage.setItem('velavan_employee_directory_list', JSON.stringify(filteredDir));
+            }
+          } catch (e) {}
+        }
+
         localStorage.removeItem('velavan_deleted_ids');
       } catch (e) {}
       await loadEmployees();
     } catch (err) {
       alert('Error deleting employee: ' + err.message);
-    }
-  };
-
-  const handleClearAll = async () => {
-    if (!confirm('Are you sure you want to clear ALL employees from the directory? You can then add your new staff list.')) {
-      return;
-    }
-    try {
-      setSaveLoading(true);
-      await api.deleteAllEmployees().catch(() => {});
-      localStorage.removeItem('velavan_employee_details_cache');
-      localStorage.removeItem('velavan_deleted_ids');
-      setEmployees([]);
-    } catch (err) {
-      alert('Error clearing employee list: ' + err.message);
-    } finally {
-      setSaveLoading(false);
     }
   };
 
