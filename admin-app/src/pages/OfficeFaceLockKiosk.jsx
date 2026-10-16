@@ -329,8 +329,22 @@ export default function OfficeFaceLockKiosk() {
         if (result.attendance && snapshot) {
           result.attendance.punch_photo = snapshot;
         }
-        if (!result.employee && employee) {
-          result.employee = employee;
+        if (result.attendance) {
+          try {
+            const bStr = localStorage.getItem('velavan_master_database_backup');
+            if (bStr) {
+              const b = JSON.parse(bStr);
+              if (Array.isArray(b?.attendance)) {
+                const attIdx = b.attendance.findIndex(a => a.emp_id === result.attendance.emp_id && a.date === result.attendance.date);
+                if (attIdx !== -1) {
+                  b.attendance[attIdx] = { ...b.attendance[attIdx], ...result.attendance };
+                } else {
+                  b.attendance.unshift(result.attendance);
+                }
+                localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+              }
+            }
+          } catch (e) {}
         }
         setPunchModalData(result);
         fetchAttendanceData();
@@ -352,6 +366,23 @@ export default function OfficeFaceLockKiosk() {
 
   const handlePinPunchSuccess = (result) => {
     playChime('success');
+    if (result.attendance) {
+      try {
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        if (bStr) {
+          const b = JSON.parse(bStr);
+          if (Array.isArray(b?.attendance)) {
+            const attIdx = b.attendance.findIndex(a => a.emp_id === result.attendance.emp_id && a.date === result.attendance.date);
+            if (attIdx !== -1) {
+              b.attendance[attIdx] = { ...b.attendance[attIdx], ...result.attendance };
+            } else {
+              b.attendance.unshift(result.attendance);
+            }
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+          }
+        }
+      } catch (e) {}
+    }
     setPunchModalData(result);
     fetchAttendanceData();
   };

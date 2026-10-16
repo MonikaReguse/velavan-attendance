@@ -81,7 +81,7 @@ export default function AttendanceLogs() {
     try {
       setLoading(true);
       const data = await api.getAttendanceHistory(filters);
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setLogs(data);
         try {
           localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(data));
