@@ -400,9 +400,16 @@ export default function FaceEnrollment() {
                         {selectedEmployee.emp_id}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500">
-                      {selectedEmployee.department} • {selectedEmployee.role}
-                    </p>
+                    <div className="flex items-center space-x-2 mt-0.5">
+                      <p className="text-xs text-slate-500">
+                        {selectedEmployee.department} • {selectedEmployee.role}
+                      </p>
+                      {selectedEmployee.has_face_enrolled ? (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          Enrolled (Ready to Put Again)
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
@@ -526,7 +533,7 @@ export default function FaceEnrollment() {
                   }`}
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{enrolling ? 'Enrolling...' : 'Enroll FaceLock Biometric'}</span>
+                  <span>{enrolling ? 'Enrolling...' : (selectedEmployee?.has_face_enrolled ? 'Update / Put FaceLock Again' : 'Enroll FaceLock Biometric')}</span>
                 </button>
               </div>
             </div>

@@ -35,7 +35,8 @@ import {
   RefreshCw,
   Clock,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  RotateCcw
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
@@ -692,24 +693,30 @@ export default function EmployeeDirectory({ setActiveTab }) {
                       {/* FaceLock Status */}
                       <td className="px-4 py-3.5">
                         {hasFace ? (
-                          <button
-                            onClick={() => {
-                              try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
-                              setActiveTab('face-enrollment');
-                            }}
-                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 transition-colors shadow-2xs"
-                            title="Face Biometric Enrolled (Click to Re-Enroll or Update)"
-                          >
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>Enrolled</span>
-                          </button>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>Enrolled</span>
+                            </span>
+                            <button
+                              onClick={() => {
+                                try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
+                                setActiveTab('face-enrollment');
+                              }}
+                              className="inline-flex items-center space-x-1 text-[10.5px] font-bold text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs transition-colors cursor-pointer"
+                              title="Put FaceLock Again / Update Face Biometric"
+                            >
+                              <RotateCcw className="w-3 h-3 text-emerald-600" />
+                              <span>Put Again</span>
+                            </button>
+                          </div>
                         ) : (
                           <button
                             onClick={() => {
                               try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
                               setActiveTab('face-enrollment');
                             }}
-                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full border border-amber-200 transition-colors shadow-2xs"
+                            className="inline-flex items-center space-x-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full border border-amber-200 transition-colors shadow-2xs cursor-pointer"
                             title="Enroll Staff Face Biometric"
                           >
                             <ScanFace className="w-3 h-3 text-amber-600" />
@@ -859,14 +866,31 @@ export default function EmployeeDirectory({ setActiveTab }) {
                 <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
                   <div>
                     {hasFace ? (
-                      <span className="inline-flex items-center space-x-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        <span>Face Enrolled</span>
-                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="inline-flex items-center space-x-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Enrolled</span>
+                        </span>
+                        <button
+                          onClick={() => {
+                            try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
+                            setActiveTab('face-enrollment');
+                          }}
+                          className="inline-flex items-center space-x-1 text-[10px] font-bold text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs transition-colors cursor-pointer"
+                          title="Put FaceLock Again / Update Face Biometric"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5 text-emerald-600" />
+                          <span>Put Again</span>
+                        </button>
+                      </div>
                     ) : (
                       <button
-                        onClick={() => setActiveTab('add-employee')}
-                        className="inline-flex items-center space-x-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 transition-colors"
+                        onClick={() => {
+                          try { sessionStorage.setItem('enroll_emp_id', String(emp.id || emp.emp_id)); } catch (e) {}
+                          setActiveTab('face-enrollment');
+                        }}
+                        className="inline-flex items-center space-x-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 transition-colors cursor-pointer"
+                        title="Enroll Staff Face Biometric"
                       >
                         <ScanFace className="w-3 h-3 text-amber-600" />
                         <span>Enroll Face</span>
@@ -970,6 +994,24 @@ export default function EmployeeDirectory({ setActiveTab }) {
               >
                 <GraduationCap className="w-3.5 h-3.5" />
                 <span>4. Academic Docs</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditTab('facelock')}
+                className={`py-3 px-3 text-xs font-bold border-b-2 whitespace-nowrap transition-colors flex items-center space-x-1.5 ${
+                  editTab === 'facelock'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <ScanFace className="w-3.5 h-3.5" />
+                <span>5. FaceLock Biometric</span>
+                {editingEmp?.has_face_enrolled ? (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600 ml-1" />
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 ml-1"></span>
+                )}
               </button>
             </div>
 
@@ -1472,13 +1514,120 @@ export default function EmployeeDirectory({ setActiveTab }) {
                 </div>
               )}
 
+              {/* TAB 5: FACELOCK BIOMETRIC */}
+              {editTab === 'facelock' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3.5">
+                        <div className="relative">
+                          <img
+                            src={resolvePhotoUrl(formData.avatar || formData.doc_photo || editingEmp?.avatar || editingEmp?.doc_photo, formData.name)}
+                            alt={formData.name}
+                            onError={(e) => handleImageError(e, formData.name)}
+                            className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500 shadow-sm bg-white"
+                          />
+                          {editingEmp?.has_face_enrolled ? (
+                            <span className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full p-1 border-2 border-white shadow-xs">
+                              <CheckCircle2 className="w-3 h-3" />
+                            </span>
+                          ) : null}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <h4 className="font-bold text-slate-900 text-sm">{formData.name || editingEmp?.name}</h4>
+                            <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-200 text-slate-700 rounded font-semibold">
+                              {formData.emp_id || editingEmp?.emp_id}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">{formData.role || editingEmp?.role} • {formData.department || editingEmp?.department}</p>
+                          <div className="mt-1.5">
+                            {editingEmp?.has_face_enrolled ? (
+                              <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>FaceLock Biometric Active & Enrolled</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Face Biometric Not Yet Enrolled</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-3">
+                    <div className="flex items-start space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <ScanFace className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-slate-900 text-xs">Put FaceLock Again / Re-Scan Biometrics</h5>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          Need to update this staff member's face scan or re-enroll with fresh lighting or angle? Click below to launch the live Face Biometric Scanner.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = editingEmp?.id || editingEmp?.emp_id || formData.emp_id;
+                          if (targetId) {
+                            try { sessionStorage.setItem('enroll_emp_id', String(targetId)); } catch (e) {}
+                          }
+                          setModalOpen(false);
+                          setActiveTab('face-enrollment');
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-2 transition-all cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Put FaceLock Again (Open Camera)</span>
+                      </button>
+
+                      {editingEmp?.has_face_enrolled ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm(`Reset FaceLock biometric data for ${formData.name || editingEmp?.name}? The staff will need to re-enroll face before kiosk face punching.`)) return;
+                            try {
+                              await api.deleteFaceDescriptor(editingEmp.id);
+                              setEmployees(prev => prev.map(e => e.id === editingEmp.id ? { ...e, has_face_enrolled: 0, hasFace: false } : e));
+                              if (editingEmp) {
+                                setEditingEmp(prev => ({ ...prev, has_face_enrolled: 0, hasFace: false }));
+                              }
+                              alert('Face biometric cleared successfully.');
+                            } catch (err) {
+                              alert('Failed to clear face biometric: ' + (err.message || 'Server error'));
+                            }
+                          }}
+                          className="px-3 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Clear Old Face</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-200/60">
+                    <span className="font-semibold text-slate-700">Note:</span> FaceLock uses 128-point neural vector embeddings stored securely in the PostgreSQL cloud database. You can re-enroll or update the face photo anytime without losing attendance history or salary details.
+                  </div>
+                </div>
+              )}
+
               {/* Modal Action Buttons */}
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                 <div className="text-[11px] text-slate-500">
                   {editTab === 'basic' && 'Next: Configure Bank Details'}
                   {editTab === 'bank' && 'Next: Upload 4 Required Documents'}
                   {editTab === 'req_docs' && 'Next: Upload Academic Qualifications'}
-                  {editTab === 'academic_docs' && 'All sections ready for submission.'}
+                  {editTab === 'academic_docs' && 'Next: FaceLock Biometrics'}
+                  {editTab === 'facelock' && 'All sections ready. Save profile or re-enroll face above.'}
                 </div>
                 <div className="flex items-center space-x-2.5">
                   <button
@@ -1567,21 +1716,36 @@ export default function EmployeeDirectory({ setActiveTab }) {
                 </div>
               </div>
 
-              <div className="flex items-center space-x-1">
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={() => {
+                    const targetId = viewingEmp?.id || viewingEmp?.emp_id;
+                    if (targetId) {
+                      try { sessionStorage.setItem('enroll_emp_id', String(targetId)); } catch (e) {}
+                    }
+                    setViewingEmp(null);
+                    setActiveTab('face-enrollment');
+                  }}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200 transition-colors flex items-center space-x-1 cursor-pointer"
+                  title="Put FaceLock Again / Update Face Biometric"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Put FaceLock Again</span>
+                </button>
                 <button
                   onClick={() => {
                     const emp = viewingEmp;
                     setViewingEmp(null);
                     handleOpenEdit(emp);
                   }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-1"
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer"
                 >
                   <Edit className="w-3.5 h-3.5" />
                   <span>Edit Profile</span>
                 </button>
                 <button
                   onClick={() => setViewingEmp(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
