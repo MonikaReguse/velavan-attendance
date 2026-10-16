@@ -103,7 +103,16 @@ export default function EmployeeDirectory({ setActiveTab }) {
   });
 
   useEffect(() => {
+    try {
+      localStorage.removeItem('velavan_deleted_ids');
+    } catch (e) {}
     loadEmployees();
+
+    const handleDataRestored = () => {
+      loadEmployees();
+    };
+    window.addEventListener('velavan_data_restored', handleDataRestored);
+    return () => window.removeEventListener('velavan_data_restored', handleDataRestored);
   }, []);
 
   const loadEmployees = async () => {
@@ -117,26 +126,11 @@ export default function EmployeeDirectory({ setActiveTab }) {
       
       let mergedData = Array.isArray(data) ? [...data] : [];
 
-      // Check deleted IDs blacklist from localStorage
-      let deletedIds = new Set();
-      try {
-        const delStr = localStorage.getItem('velavan_deleted_ids');
-        if (delStr) {
-          deletedIds = new Set(JSON.parse(delStr));
-        }
-      } catch (e) {}
-
-      // Filter out any employees that were deleted
-      if (deletedIds.size > 0) {
-        mergedData = mergedData.filter(e => !deletedIds.has(e.emp_id) && !deletedIds.has(String(e.id)));
-      }
-
       // Safeguard against Render restart: Merge user edits, rich bank details & documents from local cache
       const cachedStr = localStorage.getItem('velavan_employee_details_cache');
       if (cachedStr) {
         try {
           const cached = JSON.parse(cachedStr);
-          const DUMMY_IDS = new Set(['VPDM08', 'VP004', 'VPDM02', 'VP003', 'VP007', 'VP005', 'VPWD01', 'VPDM01']);
 
           mergedData = mergedData.map(emp => {
             const c = cached[emp.emp_id] || cached[String(emp.id)];
@@ -172,10 +166,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
             };
           });
 
-          // Only merge newly created offline/in-progress employees if NOT deleted and NOT legacy dummy employees
+          // Merge any offline newly added employees if not already in list
           const existingEmpIds = new Set(mergedData.map(e => e.emp_id));
           for (const [cachedEmpId, c] of Object.entries(cached)) {
-            if (!existingEmpIds.has(cachedEmpId) && !deletedIds.has(cachedEmpId) && !DUMMY_IDS.has(cachedEmpId) && c && c.name) {
+            if (!existingEmpIds.has(cachedEmpId) && c && c.name) {
               mergedData.push({
                 ...c,
                 id: c.id || cachedEmpId,
@@ -383,11 +377,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
           if (emp.id) delete cached[String(emp.id)];
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
-        const delStr = localStorage.getItem('velavan_deleted_ids') || '[]';
-        const delList = JSON.parse(delStr);
-        if (emp.emp_id && !delList.includes(emp.emp_id)) delList.push(emp.emp_id);
-        if (emp.id && !delList.includes(String(emp.id))) delList.push(String(emp.id));
-        localStorage.setItem('velavan_deleted_ids', JSON.stringify(delList));
+        localStorage.removeItem('velavan_deleted_ids');
       } catch (e) {}
       await loadEmployees();
     } catch (err) {
@@ -403,8 +393,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
       setSaveLoading(true);
       await api.deleteAllEmployees().catch(() => {});
       localStorage.removeItem('velavan_employee_details_cache');
-      const DUMMY_IDS = ['VPDM08', 'VP004', 'VPDM02', 'VP003', 'VP007', 'VP005', 'VPWD01', 'VPDM01'];
-      localStorage.setItem('velavan_deleted_ids', JSON.stringify(DUMMY_IDS));
+      localStorage.removeItem('velavan_deleted_ids');
       setEmployees([]);
     } catch (err) {
       alert('Error clearing employee list: ' + err.message);

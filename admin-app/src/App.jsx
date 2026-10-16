@@ -59,6 +59,44 @@ export default function App() {
     api.getSettings().then(s => {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);
+
+    // Auto-purge toxic deleted IDs
+    try {
+      localStorage.removeItem('velavan_deleted_ids');
+    } catch (e) {}
+
+    // Triple-Layer Disaster Recovery: Auto-sync between browser and server
+    const runDisasterRecovery = async () => {
+      try {
+        const [empData, backupData] = await Promise.all([
+          api.getEmployees().catch(() => []),
+          api.getBackup().catch(() => null)
+        ]);
+
+        const serverEmpCount = Array.isArray(empData) ? empData.length : 0;
+        const localBackupStr = localStorage.getItem('velavan_master_database_backup');
+        let localBackup = null;
+        if (localBackupStr) {
+          try {
+            localBackup = JSON.parse(localBackupStr);
+          } catch (e) {}
+        }
+
+        if (serverEmpCount > 0 && backupData && backupData.employees && backupData.employees.length > 0) {
+          // Server is healthy -> refresh browser disaster backup
+          localStorage.setItem('velavan_master_database_backup', JSON.stringify(backupData));
+        } else if (serverEmpCount === 0 && localBackup && Array.isArray(localBackup.employees) && localBackup.employees.length > 0) {
+          // Server rebooted empty -> auto-restore from browser master backup
+          console.warn('[Disaster Recovery] Server is empty on wake-up. Auto-restoring from browser backup...');
+          await api.restoreBackup(localBackup);
+          window.dispatchEvent(new CustomEvent('velavan_data_restored'));
+        }
+      } catch (err) {
+        console.error('[Disaster Recovery Sync Error]:', err);
+      }
+    };
+
+    runDisasterRecovery();
   }, []);
 
   const handleUnlockSuccess = (user) => {

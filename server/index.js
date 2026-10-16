@@ -18,6 +18,73 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
+// Disaster Recovery Snapshot Persistence Helpers
+function saveDbSnapshot() {
+  try {
+    const employees = db.prepare('SELECT * FROM employees').all();
+    const attendance = db.prepare('SELECT * FROM attendance').all();
+    const settings = db.prepare('SELECT * FROM settings').all();
+    const leave_requests = db.prepare('SELECT * FROM leave_requests').all();
+    const snapshotPath = path.join(__dirname, 'db_snapshot.json');
+    fs.writeFileSync(snapshotPath, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      organization: 'Velavan Properties',
+      employeeCount: employees.length,
+      employees,
+      attendance,
+      settings,
+      leave_requests
+    }, null, 2));
+    console.log(`[Snapshot] Saved ${employees.length} employees and ${attendance.length} attendance records.`);
+  } catch (err) {
+    console.error('[Snapshot Save Error]:', err.message);
+  }
+}
+
+function loadDbSnapshot() {
+  try {
+    const empCount = db.prepare('SELECT count(*) as c FROM employees').get().c;
+    const snapshotPath = path.join(__dirname, 'db_snapshot.json');
+    if (empCount === 0 && fs.existsSync(snapshotPath)) {
+      console.log('[Snapshot Auto-Restore] Database is empty on startup. Auto-restoring from db_snapshot.json...');
+      const data = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+      if (data && Array.isArray(data.employees) && data.employees.length > 0) {
+        const restoreTx = db.transaction(() => {
+          for (const emp of data.employees) {
+            const keys = Object.keys(emp).filter(k => k !== 'id');
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => emp[k]);
+            db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          }
+          if (Array.isArray(data.attendance)) {
+            for (const att of data.attendance) {
+              const keys = Object.keys(att).filter(k => k !== 'id');
+              const placeholders = keys.map(() => '?').join(', ');
+              const values = keys.map(k => att[k]);
+              db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            }
+          }
+          if (Array.isArray(data.leave_requests)) {
+            for (const l of data.leave_requests) {
+              const keys = Object.keys(l).filter(k => k !== 'id');
+              const placeholders = keys.map(() => '?').join(', ');
+              const values = keys.map(k => l[k]);
+              db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            }
+          }
+        });
+        restoreTx();
+        console.log(`[Snapshot Auto-Restore] Successfully restored ${data.employees.length} employees and ${(data.attendance || []).length} attendance records.`);
+      }
+    }
+  } catch (err) {
+    console.error('[Snapshot Auto-Restore Error]:', err.message);
+  }
+}
+
+// Auto-check on server startup
+loadDbSnapshot();
+
 // Helper: Get settings as object
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -621,6 +688,7 @@ app.post('/api/employees', (req, res) => {
       faceEnrolledAt
     );
     const createdEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(result.lastInsertRowid);
+    saveDbSnapshot();
     res.status(201).json({ id: result.lastInsertRowid, emp_id: actualEmpId, employee: createdEmp, success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -694,6 +762,7 @@ app.put('/api/employees/:id', (req, res) => {
         face_descriptor || null, faceEnrolledAt
       );
       const newEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(result.lastInsertRowid);
+      saveDbSnapshot();
       return res.json({ success: true, employee: newEmp, created: true });
     }
 
@@ -819,6 +888,7 @@ app.put('/api/employees/:id', (req, res) => {
     );
 
     const updatedEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(internalId);
+    saveDbSnapshot();
     res.json({ success: true, employee: updatedEmp });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -830,6 +900,7 @@ app.delete('/api/employees', (req, res) => {
     db.prepare('DELETE FROM attendance').run();
     db.prepare('DELETE FROM leave_requests').run();
     db.prepare('DELETE FROM employees').run();
+    saveDbSnapshot();
     res.json({ success: true, message: 'All employees and related records cleared' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -843,6 +914,7 @@ app.delete('/api/employees/:id', (req, res) => {
       db.prepare('DELETE FROM attendance WHERE emp_id = ?').run(target.emp_id);
       db.prepare('DELETE FROM leave_requests WHERE emp_id = ?').run(target.emp_id);
       db.prepare('DELETE FROM employees WHERE id = ?').run(target.id);
+      saveDbSnapshot();
     }
     res.json({ success: true });
   } catch (err) {
@@ -916,6 +988,7 @@ app.post('/api/employees/:id/face-descriptor', (req, res) => {
       `).run(JSON.stringify(descriptor), now, req.params.id, req.params.id);
     }
 
+    saveDbSnapshot();
     res.json({ success: true, message: 'Face biometric enrolled successfully', avatar: directAvatar });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -930,6 +1003,7 @@ app.delete('/api/employees/:id/face-descriptor', (req, res) => {
       SET face_descriptor = NULL, face_enrolled_at = NULL
       WHERE id = ? OR emp_id = ?
     `).run(req.params.id, req.params.id);
+    saveDbSnapshot();
     res.json({ success: true, message: 'Face data removed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1049,6 +1123,7 @@ app.post('/api/attendance/punch', (req, res) => {
       );
 
       const newRecord = db.prepare('SELECT * FROM attendance WHERE id = ?').get(result.lastInsertRowid);
+      saveDbSnapshot();
 
       return res.json({
         status: 'success',
@@ -1092,6 +1167,7 @@ app.post('/api/attendance/punch', (req, res) => {
           otMinutes > 0 ? `Overtime: ${otMinutes} mins` : null
         );
         const newRecord = db.prepare('SELECT * FROM attendance WHERE id = ?').get(result.lastInsertRowid);
+        saveDbSnapshot();
         return res.json({
           status: 'success',
           action: 'clock_out',
@@ -1131,6 +1207,7 @@ app.post('/api/attendance/punch', (req, res) => {
       `).run(currentTime, totalHours, otHours, otMinutes, status, updatedNotes || null, punchPhotoUrl, existing.id);
 
       const updatedRecord = db.prepare('SELECT * FROM attendance WHERE id = ?').get(existing.id);
+      saveDbSnapshot();
 
       const otNotice = otMinutes > 0 ? ` (+${otMinutes} mins Overtime)` : '';
       return res.json({
@@ -1333,6 +1410,7 @@ app.post('/api/attendance/manual', (req, res) => {
         SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
         WHERE id = ?
       `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', id);
+      saveDbSnapshot();
       return res.json({ success: true, updated: true, id });
     }
 
@@ -1344,12 +1422,14 @@ app.post('/api/attendance/manual', (req, res) => {
         SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
         WHERE id = ?
       `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', existing.id);
+      saveDbSnapshot();
       res.json({ success: true, updated: true, id: existing.id });
     } else {
       const result = db.prepare(`
         INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
       `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment');
+      saveDbSnapshot();
       res.json({ success: true, created: true, id: result.lastInsertRowid });
     }
   } catch (err) {
@@ -1405,6 +1485,7 @@ app.put('/api/attendance/:id', (req, res) => {
       SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
       WHERE id = ?
     `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', id);
+    saveDbSnapshot();
     res.json({ success: true, updated: true, id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1414,6 +1495,7 @@ app.put('/api/attendance/:id', (req, res) => {
 app.delete('/api/attendance/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM attendance WHERE id = ?').run(req.params.id);
+    saveDbSnapshot();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1576,7 +1658,7 @@ app.get('/api/backup', (req, res) => {
     const employees = db.prepare('SELECT * FROM employees').all();
     const attendance = db.prepare('SELECT * FROM attendance').all();
     const settings = db.prepare('SELECT * FROM settings').all();
-    const leaves = db.prepare('SELECT * FROM leaves').all();
+    const leave_requests = db.prepare('SELECT * FROM leave_requests').all();
     res.json({
       timestamp: new Date().toISOString(),
       organization: 'Velavan Properties',
@@ -1584,7 +1666,8 @@ app.get('/api/backup', (req, res) => {
       employees,
       attendance,
       settings,
-      leaves
+      leave_requests,
+      leaves: leave_requests
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1594,7 +1677,7 @@ app.get('/api/backup', (req, res) => {
 // Full Cloud Database Restore
 app.post('/api/backup/restore', (req, res) => {
   try {
-    const { employees, attendance, settings, leaves } = req.body;
+    const { employees, attendance, settings, leaves, leave_requests } = req.body;
     let restoredEmployees = 0;
     let restoredAttendance = 0;
 
@@ -1617,9 +1700,19 @@ app.post('/api/backup/restore', (req, res) => {
           restoredAttendance++;
         }
       }
+      const lList = leave_requests || leaves;
+      if (Array.isArray(lList)) {
+        for (const l of lList) {
+          const keys = Object.keys(l).filter(k => k !== 'id');
+          const placeholders = keys.map(() => '?').join(', ');
+          const values = keys.map(k => l[k]);
+          db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+        }
+      }
     });
 
     restoreTx();
+    saveDbSnapshot();
     res.json({ 
       success: true, 
       message: `Successfully restored ${restoredEmployees} employees and ${restoredAttendance} attendance records.`
