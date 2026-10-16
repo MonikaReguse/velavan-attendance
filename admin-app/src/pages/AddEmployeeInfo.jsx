@@ -104,6 +104,7 @@ export default function AddEmployeeInfo({ setActiveTab }) {
   const [faceEnrolled, setFaceEnrolled] = useState(false);
   const [uploadingDocKey, setUploadingDocKey] = useState(null);
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [idManuallyChanged, setIdManuallyChanged] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -132,17 +133,20 @@ export default function AddEmployeeInfo({ setActiveTab }) {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Automatically update Designation and generate Employee ID: VP + Designation Code + Serial (e.g. VPDM01)
+  // Automatically update Designation and suggest Employee ID if not manually entered
   const updateDesignationAndId = async (designation) => {
     setFormData(prev => ({ ...prev, role: designation }));
     if (!designation || !designation.trim()) {
-      setFormData(prev => ({ ...prev, role: designation, emp_id: '' }));
+      return;
+    }
+    // Only auto-generate ID if user hasn't typed their own custom emp_id
+    if (idManuallyChanged && formData.emp_id && formData.emp_id.trim() !== '') {
       return;
     }
     try {
       const res = await api.getNextEmployeeId(designation);
       if (res && res.emp_id) {
-        setFormData(prev => ({ ...prev, role: designation, emp_id: res.emp_id }));
+        setFormData(prev => ({ ...prev, role: designation, emp_id: prev.emp_id && idManuallyChanged ? prev.emp_id : res.emp_id }));
       }
     } catch (err) {
       const clean = designation.trim().replace(/[^a-zA-Z0-9\s]/g, '');
@@ -150,7 +154,7 @@ export default function AddEmployeeInfo({ setActiveTab }) {
       const code = words.length >= 2 
         ? words.map(w => w[0].toUpperCase()).join('').slice(0, 4)
         : (words[0]?.slice(0, 2).toUpperCase() || 'EM');
-      setFormData(prev => ({ ...prev, role: designation, emp_id: `VP${code}01` }));
+      setFormData(prev => ({ ...prev, role: designation, emp_id: prev.emp_id && idManuallyChanged ? prev.emp_id : `VP${code}01` }));
     }
   };
 
@@ -744,8 +748,8 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <span>
                   Employee ID <span className="text-rose-500">*</span>
                 </span>
-                <span className="text-[10px] text-emerald-600 font-mono font-medium">
-                  VP + Designation + Serial (e.g. VPDM01)
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/60 font-mono">
+                  ✏️ 100% Editable
                 </span>
               </label>
               <div className="relative">
@@ -753,12 +757,18 @@ export default function AddEmployeeInfo({ setActiveTab }) {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. VPDM01"
+                  placeholder="e.g. VPDM01 or VP001"
                   value={formData.emp_id}
-                  onChange={(e) => handleChange('emp_id', e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setIdManuallyChanged(true);
+                    handleChange('emp_id', e.target.value.toUpperCase());
+                  }}
                   className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500/20 font-mono font-bold text-emerald-700 bg-emerald-50/40"
                 />
               </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Auto-suggested based on designation, or type your own custom ID anytime.
+              </p>
             </div>
 
             <div>

@@ -887,6 +887,16 @@ app.put('/api/employees/:id', (req, res) => {
       internalId
     );
 
+    if (newEmpId !== target.emp_id) {
+      try {
+        db.prepare('UPDATE attendance SET emp_id = ? WHERE emp_id = ?').run(newEmpId, target.emp_id);
+        db.prepare('UPDATE leave_requests SET emp_id = ? WHERE emp_id = ?').run(newEmpId, target.emp_id);
+        console.log(`[Employee ID Changed] Updated attendance & leave records from ${target.emp_id} to ${newEmpId}`);
+      } catch (cascadeErr) {
+        console.warn('Cascade emp_id update warning:', cascadeErr.message);
+      }
+    }
+
     const updatedEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(internalId);
     saveDbSnapshot();
     res.json({ success: true, employee: updatedEmp });

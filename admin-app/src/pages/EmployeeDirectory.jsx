@@ -375,14 +375,18 @@ export default function EmployeeDirectory({ setActiveTab }) {
       };
 
       const targetId = editingEmp?.id || editingEmp?.emp_id || formData.emp_id;
+      const oldEmpId = editingEmp?.emp_id;
+      const newEmpId = (formData.emp_id && formData.emp_id.trim()) ? formData.emp_id.trim().toUpperCase() : oldEmpId;
 
       // 1. Safeguard: Immediately cache employee profile locally so refresh NEVER loses changes
       try {
         const cachedStr = localStorage.getItem('velavan_employee_details_cache');
         const cached = cachedStr ? JSON.parse(cachedStr) : {};
-        const key = formData.emp_id || editingEmp?.emp_id || String(targetId);
-        if (key) {
-          cached[key] = { ...(cached[key] || {}), ...payload, id: targetId, emp_id: key };
+        if (oldEmpId && oldEmpId !== newEmpId && cached[oldEmpId]) {
+          delete cached[oldEmpId];
+        }
+        if (newEmpId) {
+          cached[newEmpId] = { ...(cached[newEmpId] || {}), ...payload, id: targetId, emp_id: newEmpId };
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
       } catch (e) {}
@@ -400,9 +404,12 @@ export default function EmployeeDirectory({ setActiveTab }) {
         try {
           const cachedStr = localStorage.getItem('velavan_employee_details_cache');
           const cached = cachedStr ? JSON.parse(cachedStr) : {};
-          const key = res.employee.emp_id || formData.emp_id || String(targetId);
-          const fullEmp = { ...(cached[key] || {}), ...res.employee, ...payload };
-          cached[key] = fullEmp;
+          const confirmedKey = res.employee.emp_id || newEmpId || String(targetId);
+          if (oldEmpId && oldEmpId !== confirmedKey && cached[oldEmpId]) {
+            delete cached[oldEmpId];
+          }
+          const fullEmp = { ...(cached[confirmedKey] || {}), ...res.employee, ...payload };
+          cached[confirmedKey] = fullEmp;
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
 
           // Also immediately update local master database backup
@@ -410,7 +417,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
           if (bStr) {
             const b = JSON.parse(bStr);
             if (Array.isArray(b?.employees)) {
-              const idx = b.employees.findIndex(e => e.emp_id === key || String(e.id) === String(targetId));
+              const idx = b.employees.findIndex(e => e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId));
               if (idx !== -1) {
                 b.employees[idx] = { ...b.employees[idx], ...fullEmp };
               } else {
@@ -607,9 +614,18 @@ export default function EmployeeDirectory({ setActiveTab }) {
                             <div className="font-bold text-slate-800 text-xs">
                               {emp.name}
                             </div>
-                            <span className="font-mono text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold border border-emerald-200/60 inline-block mt-0.5">
-                              {emp.emp_id}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleOpenEdit(emp);
+                                setEditTab('basic');
+                              }}
+                              className="group inline-flex items-center space-x-1 font-mono text-[10px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-200/60 mt-0.5 transition-colors cursor-pointer"
+                              title="Click to edit Employee ID"
+                            >
+                              <span>{emp.emp_id}</span>
+                              <Edit className="w-2.5 h-2.5 text-emerald-600 opacity-60 group-hover:opacity-100" />
+                            </button>
                           </div>
                         </div>
                       </td>
@@ -821,9 +837,18 @@ export default function EmployeeDirectory({ setActiveTab }) {
                   </div>
                   
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                      {emp.emp_id}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenEdit(emp);
+                        setEditTab('basic');
+                      }}
+                      className="group inline-flex items-center space-x-1 text-[10px] font-mono font-bold bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 text-slate-600 px-2 py-0.5 rounded border border-slate-200/60 transition-colors cursor-pointer"
+                      title="Click to edit Employee ID"
+                    >
+                      <span>{emp.emp_id}</span>
+                      <Edit className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" />
+                    </button>
                     <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/60">
                       DOJ: {emp.doj || emp.join_date || '--'}
                     </span>
@@ -1030,16 +1055,25 @@ export default function EmployeeDirectory({ setActiveTab }) {
                 <div className="space-y-3.5">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-slate-700 font-semibold mb-1">
-                        Employee ID <span className="text-rose-500">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-700 font-semibold">
+                          Employee ID <span className="text-rose-500">*</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/70">
+                          ✏️ Editable ID
+                        </span>
+                      </div>
                       <input
                         type="text"
                         required
                         value={formData.emp_id}
                         onChange={(e) => setFormData({ ...formData, emp_id: e.target.value.toUpperCase() })}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800"
+                        placeholder="e.g. VPDM01, VP001"
                       />
+                      <p className="text-[10.5px] text-slate-500 mt-1">
+                        You can edit or customize this Employee ID anytime.
+                      </p>
                     </div>
                     <div>
                       <label className="block text-slate-700 font-semibold mb-1">
