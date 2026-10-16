@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Shield, Clock, Sliders, Lock, User, Database, Download, Upload, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Shield, Clock, Sliders, Lock, User, Database, Download, Upload, AlertTriangle, RefreshCw, Phone } from 'lucide-react';
 import { api } from '../services/api';
 
 export default function OfficeSettings({ onUpdateOfficeName }) {
   const [settings, setSettings] = useState({
     office_name: 'Velavan Properties',
+    admin_phone: '',
     office_start_time: '09:30',
     office_end_time: '18:00',
     grace_period_minutes: '10',
@@ -121,21 +122,40 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
-        {/* Office Details */}
+        {/* Organization Profile & Admin Phone */}
         <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs space-y-4">
           <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
             <Settings className="w-4 h-4 text-emerald-600" />
-            <span>Organization Profile</span>
+            <span>Organization Profile & Official Admin Phone</span>
           </h3>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Office / Company Name</label>
-            <input
-              type="text"
-              value={settings.office_name}
-              onChange={(e) => handleChange('office_name', e.target.value)}
-              className="w-full max-w-md px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Office / Company Name</label>
+              <input
+                type="text"
+                value={settings.office_name}
+                onChange={(e) => handleChange('office_name', e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20"
+                placeholder="Velavan Properties"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">Official business name displayed across portals.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Admin Contact Phone Number</label>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="tel"
+                  value={settings.admin_phone || ''}
+                  onChange={(e) => handleChange('admin_phone', e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                  placeholder="e.g. 9876543210"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Official administrator contact phone number for office & employee escalations.</p>
+            </div>
           </div>
         </div>
 
@@ -146,10 +166,10 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
             <span>Administrator Login Credentials</span>
           </h3>
           <p className="text-xs text-slate-500">
-            Configure the master username and password required to log into the Admin & HR Portal.
+            Configure the master username, password, and official phone number for administrator access.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Admin Username</label>
               <div className="relative">
@@ -180,6 +200,21 @@ export default function OfficeSettings({ onUpdateOfficeName }) {
                 />
               </div>
               <p className="text-[11px] text-slate-400 mt-1">Secret password for admin authentication.</p>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Admin Phone / Mobile</label>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="tel"
+                  value={settings.admin_phone || ''}
+                  onChange={(e) => handleChange('admin_phone', e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                  placeholder="e.g. 9876543210"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Mobile number for OTP recovery & support.</p>
             </div>
           </div>
         </div>

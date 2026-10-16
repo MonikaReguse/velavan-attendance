@@ -94,6 +94,7 @@ function initDb() {
     { key: 'office_name', value: 'Velavan Properties' },
     { key: 'admin_username', value: 'admin' },
     { key: 'admin_password', value: 'admin123' },
+    { key: 'admin_phone', value: '' },
     { key: 'office_start_time', value: '09:30' },
     { key: 'office_end_time', value: '18:00' },
     { key: 'grace_period_minutes', value: '10' },
