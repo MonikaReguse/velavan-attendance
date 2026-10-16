@@ -4,7 +4,14 @@ import { api } from '../services/api';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const saved = localStorage.getItem('workpulse_employee_list');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [activeEmployee, setActiveEmployee] = useState(() => {
     const saved = localStorage.getItem('workpulse_authenticated_employee');
     return saved ? JSON.parse(saved) : null;
@@ -16,7 +23,7 @@ export function AppProvider({ children }) {
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [todayRecord, setTodayRecord] = useState(null);
   const [officeSettings, setOfficeSettings] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // User preferences stored in localStorage
   const [preferences, setPreferences] = useState(() => {
@@ -41,14 +48,23 @@ export function AppProvider({ children }) {
     try {
       setLoading(true);
       const [empList, todayList, settingsData] = await Promise.all([
-        api.getEmployees(),
-        api.getTodayAttendance(),
+        api.getEmployees().catch(() => null),
+        api.getTodayAttendance().catch(() => null),
         api.getSettings().catch(() => ({}))
       ]);
 
-      setEmployees(empList);
-      setTodayAttendance(todayList);
-      setOfficeSettings(settingsData);
+      if (Array.isArray(empList) && empList.length > 0) {
+        setEmployees(empList);
+        try {
+          localStorage.setItem('workpulse_employee_list', JSON.stringify(empList));
+        } catch (e) {}
+      }
+      if (Array.isArray(todayList)) {
+        setTodayAttendance(todayList);
+      }
+      if (settingsData && Object.keys(settingsData).length > 0) {
+        setOfficeSettings(settingsData);
+      }
 
       // Verify active employee against freshly fetched list
       const saved = localStorage.getItem('workpulse_authenticated_employee');

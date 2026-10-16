@@ -55,7 +55,25 @@ const ACADEMIC_DOCS = [
 ];
 
 export default function EmployeeDirectory({ setActiveTab }) {
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const backupStr = localStorage.getItem('velavan_master_database_backup');
+      if (backupStr) {
+        const parsed = JSON.parse(backupStr);
+        if (Array.isArray(parsed?.employees) && parsed.employees.length > 0) {
+          return parsed.employees;
+        }
+      }
+      const dirStr = localStorage.getItem('velavan_employee_directory_list');
+      if (dirStr) {
+        const parsed = JSON.parse(dirStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return [];
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('table'); // 'table' (Employee List Table) or 'grid' (Card View)
   const [modalOpen, setModalOpen] = useState(false);
@@ -125,6 +143,12 @@ export default function EmployeeDirectory({ setActiveTab }) {
       }
       
       let mergedData = Array.isArray(data) ? [...data] : [];
+
+      // If server returned no data (e.g. cold start / offline), keep saved active staff
+      if (mergedData.length === 0) {
+        console.log('[Directory] Server returned no staff or is connecting; keeping active roster from local storage.');
+        return;
+      }
 
       // If server returned employees, server is authoritative
       if (mergedData.length > 0) {
@@ -196,6 +220,9 @@ export default function EmployeeDirectory({ setActiveTab }) {
       }
 
       setEmployees(uniqueEmployees);
+      try {
+        localStorage.setItem('velavan_employee_directory_list', JSON.stringify(uniqueEmployees));
+      } catch (e) {}
     } catch (err) {
       console.error('Error loading employees:', err);
     }
@@ -360,8 +387,24 @@ export default function EmployeeDirectory({ setActiveTab }) {
           const cachedStr = localStorage.getItem('velavan_employee_details_cache');
           const cached = cachedStr ? JSON.parse(cachedStr) : {};
           const key = res.employee.emp_id || formData.emp_id || String(targetId);
-          cached[key] = { ...(cached[key] || {}), ...res.employee, ...payload };
+          const fullEmp = { ...(cached[key] || {}), ...res.employee, ...payload };
+          cached[key] = fullEmp;
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
+
+          // Also immediately update local master database backup
+          const bStr = localStorage.getItem('velavan_master_database_backup');
+          if (bStr) {
+            const b = JSON.parse(bStr);
+            if (Array.isArray(b?.employees)) {
+              const idx = b.employees.findIndex(e => e.emp_id === key || String(e.id) === String(targetId));
+              if (idx !== -1) {
+                b.employees[idx] = { ...b.employees[idx], ...fullEmp };
+              } else {
+                b.employees.push(fullEmp);
+              }
+              localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+            }
+          }
         } catch (e) {}
       }
 

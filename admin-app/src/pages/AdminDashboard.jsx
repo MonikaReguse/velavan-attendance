@@ -15,22 +15,52 @@ import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
 
 export default function AdminDashboard({ setActiveTab }) {
-  const [summary, setSummary] = useState(null);
-  const [todayAttendance, setTodayAttendance] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState(() => {
+    try {
+      const s = localStorage.getItem('velavan_dashboard_summary');
+      if (s) return JSON.parse(s);
+    } catch {}
+    return { total_employees: 9, present_today: 0, absent_today: 9, late_today: 0 };
+  });
+  const [todayAttendance, setTodayAttendance] = useState(() => {
+    try {
+      const a = localStorage.getItem('velavan_today_attendance');
+      if (a) return JSON.parse(a);
+    } catch {}
+    return [];
+  });
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) return p.employees;
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) return JSON.parse(e);
+    } catch {}
+    return [];
+  });
+  const [loading, setLoading] = useState(false);
 
   const loadDashboardData = async () => {
     try {
-      setLoading(true);
       const [sumRes, attRes, empRes] = await Promise.all([
-        api.getTodaySummary(),
-        api.getTodayAttendance(),
-        api.getEmployees()
+        api.getTodaySummary().catch(() => null),
+        api.getTodayAttendance().catch(() => null),
+        api.getEmployees().catch(() => null)
       ]);
-      setSummary(sumRes);
-      setTodayAttendance(attRes);
-      setEmployees(empRes);
+      if (sumRes) {
+        setSummary(sumRes);
+        try { localStorage.setItem('velavan_dashboard_summary', JSON.stringify(sumRes)); } catch {}
+      }
+      if (attRes) {
+        setTodayAttendance(attRes);
+        try { localStorage.setItem('velavan_today_attendance', JSON.stringify(attRes)); } catch {}
+      }
+      if (Array.isArray(empRes) && empRes.length > 0) {
+        setEmployees(empRes);
+      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {

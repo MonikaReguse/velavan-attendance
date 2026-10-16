@@ -16,8 +16,30 @@ import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
 
 export default function AttendanceLogs() {
-  const [logs, setLogs] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const [logs, setLogs] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.attendance) && p.attendance.length > 0) return p.attendance;
+      }
+      const l = localStorage.getItem('velavan_attendance_logs_cache');
+      if (l) return JSON.parse(l);
+    } catch {}
+    return [];
+  });
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) return p.employees;
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) return JSON.parse(e);
+    } catch {}
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [filters, setFilters] = useState({
@@ -44,9 +66,11 @@ export default function AttendanceLogs() {
   const loadEmployees = async () => {
     try {
       const data = await api.getEmployees();
-      setEmployees(data);
-      if (data.length > 0 && !formData.emp_id) {
-        setFormData(prev => ({ ...prev, emp_id: data[0].emp_id }));
+      if (Array.isArray(data) && data.length > 0) {
+        setEmployees(data);
+        if (!formData.emp_id) {
+          setFormData(prev => ({ ...prev, emp_id: data[0].emp_id }));
+        }
       }
     } catch (err) {
       console.error(err);
@@ -57,7 +81,12 @@ export default function AttendanceLogs() {
     try {
       setLoading(true);
       const data = await api.getAttendanceHistory(filters);
-      setLogs(data);
+      if (Array.isArray(data) && data.length > 0) {
+        setLogs(data);
+        try {
+          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(data));
+        } catch (e) {}
+      }
     } catch (err) {
       console.error(err);
     } finally {

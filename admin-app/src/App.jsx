@@ -94,23 +94,50 @@ export default function App() {
           window.dispatchEvent(new CustomEvent('velavan_data_restored'));
         } else if (serverEmps.length > 0) {
           // Server has the authoritative staff roster (official 9 staff).
-          // Check if any attendance records punched locally are missing from server for valid staff:
+          // Check if local backup has rich employee details (bank details, salary, docs) that server might have lost on restart:
           const serverEmpKeys = new Set(serverEmps.map(e => e.emp_id));
+          const localEmpMap = new Map(localEmps.map(e => [e.emp_id, e]));
+
+          let profileEnriched = false;
+          const mergedServerEmps = serverEmps.map(sEmp => {
+            const lEmp = localEmpMap.get(sEmp.emp_id);
+            if (!lEmp) return sEmp;
+            let updated = { ...sEmp };
+            const fieldsToCheck = [
+              'salary', 'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+              'branch_name', 'pan_number', 'aadhaar_number', 'address', 'phone', 'emergency_phone',
+              'doc_aadhaar', 'doc_pan', 'doc_photo', 'doc_bank_passbook',
+              'doc_10th', 'doc_12th', 'doc_college', 'doc_marksheet', 'avatar'
+            ];
+            for (const f of fieldsToCheck) {
+              if ((!updated[f] || updated[f] === '') && lEmp[f] && lEmp[f] !== '') {
+                updated[f] = lEmp[f];
+                profileEnriched = true;
+              }
+            }
+            return updated;
+          });
+
+          // Check if any attendance records punched locally are missing from server for valid staff:
           const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
           const missingAtts = localAtts.filter(a => serverEmpKeys.has(a.emp_id) && !serverAttKeys.has(`${a.emp_id}_${a.date}`));
 
-          if (missingAtts.length > 0) {
-            console.log(`[Disaster Recovery] Syncing ${missingAtts.length} missing attendance records to server...`);
+          if (profileEnriched || missingAtts.length > 0) {
+            console.log(`[Disaster Recovery] Syncing enriched profile details and ${missingAtts.length} attendance records to server...`);
             const payload = {
-              employees: serverEmps,
+              employees: mergedServerEmps,
               attendance: [...serverAtts, ...missingAtts],
               leave_requests: backupData?.leave_requests || []
             };
             await api.restoreBackup(payload).catch(console.error);
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(payload));
+            window.dispatchEvent(new CustomEvent('velavan_data_restored'));
           } else {
             // Server is authoritative -> update local backup to match server exactly
-            localStorage.setItem('velavan_master_database_backup', JSON.stringify(backupData));
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify({
+              ...backupData,
+              employees: mergedServerEmps
+            }));
           }
         }
       } catch (err) {
