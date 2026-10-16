@@ -82,11 +82,56 @@ export default function App() {
         const localEmps = Array.isArray(localBackup?.employees) ? localBackup.employees : [];
         const localAtts = Array.isArray(localBackup?.attendance) ? localBackup.attendance : [];
 
+        // Also check details cache and directory list cache for richest employee records
+        let localCacheList = [];
+        try {
+          const cacheStr = localStorage.getItem('velavan_employee_details_cache');
+          if (cacheStr) {
+            const parsedCache = JSON.parse(cacheStr);
+            localCacheList = Object.values(parsedCache || {});
+          }
+        } catch (e) {}
+
+        let localDirList = [];
+        try {
+          const dirStr = localStorage.getItem('velavan_employee_directory_list');
+          if (dirStr) {
+            const parsedDir = JSON.parse(dirStr);
+            if (Array.isArray(parsedDir)) localDirList = parsedDir;
+          }
+        } catch (e) {}
+
+        // Build comprehensive local employee map with merged non-empty fields
+        const localPool = [...localEmps, ...localDirList, ...localCacheList];
+        const localEmpMap = new Map();
+        const localEmpNameMap = new Map();
+
+        for (const item of localPool) {
+          if (!item || (!item.emp_id && !item.name)) continue;
+          const k = item.emp_id || '';
+          const nk = (item.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+          const existingByEmpId = k ? localEmpMap.get(k) : null;
+          const existingByName = nk ? localEmpNameMap.get(nk) : null;
+          const targetItem = existingByEmpId || existingByName || {};
+
+          const merged = { ...targetItem };
+          for (const [prop, val] of Object.entries(item)) {
+            if (val !== undefined && val !== null && val !== '') {
+              merged[prop] = val;
+            }
+          }
+
+          if (k) localEmpMap.set(k, merged);
+          if (nk) localEmpNameMap.set(nk, merged);
+        }
+
         // If server is completely empty (e.g., cold restart wiped ephemeral DB), restore full backup
-        if (serverEmps.length === 0 && localEmps.length > 0) {
-          console.warn(`[Disaster Recovery] Empty server detected! Restoring ${localEmps.length} employees and ${localAtts.length} attendance records from browser backup...`);
+        if (serverEmps.length === 0 && localPool.length > 0) {
+          const distinctLocalEmps = Array.from(localEmpMap.values());
+          console.warn(`[Disaster Recovery] Empty server detected! Restoring ${distinctLocalEmps.length} employees and ${localAtts.length} attendance records from browser backup...`);
           const mergedPayload = {
-            employees: localEmps,
+            employees: distinctLocalEmps,
             attendance: localAtts,
             leave_requests: localBackup?.leave_requests || []
           };
@@ -94,27 +139,20 @@ export default function App() {
           window.dispatchEvent(new CustomEvent('velavan_data_restored'));
         } else if (serverEmps.length > 0) {
           // Server has the authoritative staff roster (official 9 staff).
-          // Check if local backup has rich employee details (bank details, salary, docs) that server might have lost on restart:
-          const serverEmpKeys = new Set(serverEmps.map(e => e.emp_id));
-          const localEmpMap = new Map(localEmps.map(e => [e.emp_id, e]));
-          const localEmpNameMap = new Map(localEmps.filter(e => e.name).map(e => [e.name.trim().toLowerCase().replace(/[^a-z0-9]/g, ''), e]));
-
+          // Check if local sources have rich employee details (bank details, salary, docs, facelock) that server might lack:
           let profileEnriched = false;
           const mergedServerEmps = serverEmps.map(sEmp => {
             const cleanName = (sEmp.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
             const lEmp = localEmpMap.get(sEmp.emp_id) || localEmpNameMap.get(cleanName);
             if (!lEmp) return sEmp;
             let updated = { ...sEmp };
-            const fieldsToCheck = [
-              'salary', 'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
-              'branch_name', 'pan_number', 'aadhaar_number', 'address', 'phone', 'emergency_phone',
-              'doc_aadhaar', 'doc_pan', 'doc_photo', 'doc_bank_passbook',
-              'doc_10th', 'doc_12th', 'doc_college', 'doc_marksheet', 'avatar'
-            ];
-            for (const f of fieldsToCheck) {
-              if ((!updated[f] || updated[f] === '') && lEmp[f] && lEmp[f] !== '') {
-                updated[f] = lEmp[f];
-                profileEnriched = true;
+            for (const [prop, propVal] of Object.entries(lEmp)) {
+              if (prop === 'id') continue;
+              if (propVal !== undefined && propVal !== null && propVal !== '') {
+                if (updated[prop] === undefined || updated[prop] === null || updated[prop] === '') {
+                  updated[prop] = propVal;
+                  profileEnriched = true;
+                }
               }
             }
             return updated;

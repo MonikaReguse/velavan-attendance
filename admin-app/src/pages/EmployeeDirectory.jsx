@@ -207,35 +207,24 @@ export default function EmployeeDirectory({ setActiveTab }) {
               localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
             }
 
-            // Merge rich documents / bank details for valid existing employees
+            // Merge all non-empty properties from cache for valid existing employees
             mergedData = mergedData.map(emp => {
               const c = cached[emp.emp_id] || cached[String(emp.id)];
               if (!c) return emp;
-              return {
-                ...emp,
-                salary: (emp.salary !== undefined && emp.salary !== '' && emp.salary !== null) ? emp.salary : (c.salary || ''),
-                phone: emp.phone || c.phone || '',
-                emergency_phone: emp.emergency_phone || c.emergency_phone || '',
-                doj: emp.doj || c.doj || '',
-                address: emp.address || c.address || '',
-                aadhaar_number: emp.aadhaar_number || c.aadhaar_number || '',
-                pin: emp.pin || c.pin || '1234',
-                bank_name: emp.bank_name || c.bank_name || '',
-                account_number: emp.account_number || c.account_number || '',
-                ifsc_code: emp.ifsc_code || c.ifsc_code || '',
-                account_holder_name: emp.account_holder_name || c.account_holder_name || emp.name || '',
-                branch_name: emp.branch_name || c.branch_name || '',
-                pan_number: emp.pan_number || c.pan_number || '',
-                doc_aadhaar: emp.doc_aadhaar || c.doc_aadhaar || '',
-                doc_pan: emp.doc_pan || c.doc_pan || '',
-                doc_photo: emp.doc_photo || c.doc_photo || emp.avatar || '',
-                doc_bank_passbook: emp.doc_bank_passbook || c.doc_bank_passbook || '',
-                doc_10th: emp.doc_10th || c.doc_10th || '',
-                doc_12th: emp.doc_12th || c.doc_12th || '',
-                doc_college: emp.doc_college || c.doc_college || '',
-                doc_marksheet: emp.doc_marksheet || c.doc_marksheet || '',
-                avatar: emp.avatar || c.avatar || c.doc_photo || ''
-              };
+              let updated = { ...emp };
+              for (const [k, v] of Object.entries(c)) {
+                if (k === 'id') continue;
+                if (v !== undefined && v !== null && v !== '') {
+                  if (updated[k] === undefined || updated[k] === null || updated[k] === '') {
+                    updated[k] = v;
+                  }
+                }
+              }
+              // Also ensure has_face_enrolled is preserved if face biometrics exist in cache
+              if (!updated.has_face_enrolled && (c.has_face_enrolled || c.face_descriptor || c.face_enrolled_at)) {
+                updated.has_face_enrolled = 1;
+              }
+              return updated;
             });
           } catch (e) {}
         }
@@ -290,6 +279,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
     setEditTab('basic');
     setValidationError('');
     setFormData({
+      ...(emp || {}),
       emp_id: emp.emp_id || '',
       name: emp.name || '',
       email: emp.email || '',
@@ -390,9 +380,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
     try {
       setSaveLoading(true);
       const payload = {
+        ...(editingEmp || {}),
         ...formData,
-        avatar: formData.doc_photo || formData.avatar || '',
-        doc_photo: formData.doc_photo || formData.avatar || '',
+        avatar: formData.doc_photo || formData.avatar || editingEmp?.avatar || '',
+        doc_photo: formData.doc_photo || formData.avatar || editingEmp?.doc_photo || '',
         account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
       };
 

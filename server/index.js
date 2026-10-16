@@ -822,7 +822,8 @@ app.put('/api/employees/:id', (req, res) => {
       }
     }
 
-    const val = (v, fallback) => (v !== undefined ? v : fallback);
+    // Preserve target's existing value if new value is undefined, null, or empty string
+    const val = (v, fallback) => ((v !== undefined && v !== null && v !== '') ? v : fallback);
     const updatedFaceEnrolledAt = (face_descriptor && face_descriptor !== '') ? new Date().toISOString() : target.face_enrolled_at;
 
     db.prepare(`
@@ -1727,10 +1728,26 @@ app.post('/api/backup/restore', (req, res) => {
     const restoreTx = db.transaction(() => {
       if (Array.isArray(employees)) {
         for (const emp of employees) {
-          const keys = Object.keys(emp).filter(k => k !== 'id');
-          const placeholders = keys.map(() => '?').join(', ');
-          const values = keys.map(k => emp[k]);
-          db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          const empId = emp.emp_id;
+          const existing = db.prepare('SELECT * FROM employees WHERE emp_id = ? OR id = ?').get(empId, emp.id || 0);
+          if (existing) {
+            const merged = { ...existing };
+            for (const [k, v] of Object.entries(emp)) {
+              if (k === 'id') continue;
+              if (v !== undefined && v !== null && v !== '') {
+                merged[k] = v;
+              }
+            }
+            const keys = Object.keys(merged).filter(k => k !== 'id');
+            const setClause = keys.map(k => `${k} = ?`).join(', ');
+            const values = keys.map(k => merged[k]);
+            db.prepare(`UPDATE employees SET ${setClause} WHERE id = ?`).run(...values, existing.id);
+          } else {
+            const keys = Object.keys(emp).filter(k => k !== 'id');
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => emp[k]);
+            db.prepare(`INSERT INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          }
           restoredEmployees++;
         }
       }
