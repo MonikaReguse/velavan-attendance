@@ -66,13 +66,14 @@ export default function App() {
       localStorage.removeItem('velavan_deleted_ids');
       localStorage.removeItem('velavan_deleted_punches');
 
-      const purgeOldModelsKey = 'velavan_purge_old_models_v2';
+      const purgeOldModelsKey = 'velavan_purge_old_models_v3';
       if (!localStorage.getItem(purgeOldModelsKey)) {
         localStorage.removeItem('velavan_employee_details_cache');
         localStorage.removeItem('velavan_employee_directory_list');
         localStorage.removeItem('velavan_master_database_backup');
         localStorage.removeItem('velavan_attendance_logs_cache');
         localStorage.removeItem('velavan_today_attendance');
+        localStorage.removeItem('velavan_realtime_punches');
         localStorage.removeItem('velavan_dashboard_summary');
         localStorage.setItem(purgeOldModelsKey, 'true');
       }

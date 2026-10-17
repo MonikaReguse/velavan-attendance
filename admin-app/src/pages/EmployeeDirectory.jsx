@@ -337,7 +337,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
         ...(editingEmp || {}),
         ...formData,
         department: (formData.department && formData.department.trim()) ? formData.department.trim() : (editingEmp?.department || 'Digital Marketing'),
-        avatar: formData.doc_photo || formData.avatar || editingEmp?.avatar || '',
+        avatar: formData.avatar || formData.doc_photo || editingEmp?.avatar || '',
         doc_photo: formData.doc_photo || formData.avatar || editingEmp?.doc_photo || '',
         account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
       };
@@ -354,7 +354,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
           delete cached[oldEmpId];
         }
         if (newEmpId) {
-          cached[newEmpId] = { ...(cached[newEmpId] || {}), ...payload, id: targetId, emp_id: newEmpId };
+          cached[newEmpId] = { ...payload, id: targetId, emp_id: newEmpId };
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
         }
       } catch (e) {}
@@ -376,39 +376,32 @@ export default function EmployeeDirectory({ setActiveTab }) {
           if (oldEmpId && oldEmpId !== confirmedKey && cached[oldEmpId]) {
             delete cached[oldEmpId];
           }
-          const fullEmp = { ...(cached[confirmedKey] || {}), ...res.employee, ...payload };
+          const fullEmp = { ...res.employee };
           cached[confirmedKey] = fullEmp;
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
 
           // Also immediately update local master database backup
           const bStr = localStorage.getItem('velavan_master_database_backup');
-          if (bStr) {
-            const b = JSON.parse(bStr);
-            if (Array.isArray(b?.employees)) {
-              const idx = b.employees.findIndex(e => e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId));
-              if (idx !== -1) {
-                b.employees[idx] = { ...b.employees[idx], ...fullEmp };
-              } else {
-                b.employees.push(fullEmp);
-              }
-              localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
-            }
+          const b = bStr ? JSON.parse(bStr) : { employees: [], attendance: [] };
+          if (!Array.isArray(b.employees)) b.employees = [];
+          const idx = b.employees.findIndex(e => e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId));
+          if (idx !== -1) {
+            b.employees[idx] = { ...fullEmp };
+          } else {
+            b.employees.push(fullEmp);
           }
+          localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
 
           // Also immediately update local directory list cache
           const dirStr = localStorage.getItem('velavan_employee_directory_list');
-          if (dirStr) {
-            const parsed = JSON.parse(dirStr);
-            if (Array.isArray(parsed)) {
-              const dIdx = parsed.findIndex(e => e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId));
-              if (dIdx !== -1) {
-                parsed[dIdx] = { ...parsed[dIdx], ...fullEmp };
-              } else {
-                parsed.push(fullEmp);
-              }
-              localStorage.setItem('velavan_employee_directory_list', JSON.stringify(parsed));
-            }
+          const parsed = dirStr ? JSON.parse(dirStr) : [];
+          const dIdx = parsed.findIndex(e => e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId));
+          if (dIdx !== -1) {
+            parsed[dIdx] = { ...fullEmp };
+          } else {
+            parsed.push(fullEmp);
           }
+          localStorage.setItem('velavan_employee_directory_list', JSON.stringify(parsed));
 
           // Also update attendance caches so that any attendance record for this employee immediately shows the updated name and department
           try {

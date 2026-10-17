@@ -856,8 +856,8 @@ app.put('/api/employees/:id', (req, res) => {
       }
     }
 
-    // Preserve target's existing value if new value is undefined, null, or empty string
-    const val = (v, fallback) => ((v !== undefined && v !== null && v !== '') ? v : fallback);
+    // Allow user edits (including clearing or updating fields). Fallback only if omitted (undefined)
+    const val = (v, fallback) => (v !== undefined ? v : fallback);
     const updatedFaceEnrolledAt = (face_descriptor && face_descriptor !== '') ? new Date().toISOString() : target.face_enrolled_at;
 
     db.prepare(`

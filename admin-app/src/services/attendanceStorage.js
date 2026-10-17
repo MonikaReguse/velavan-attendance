@@ -159,7 +159,7 @@ export const savePunchLocally = (punch) => {
     if (!Array.isArray(b.attendance)) b.attendance = [];
     const idx = b.attendance.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      b.attendance[idx] = { ...b.attendance[idx], ...punch };
+      b.attendance[idx] = { ...punch };
     } else {
       b.attendance.unshift(punch);
     }
@@ -172,7 +172,7 @@ export const savePunchLocally = (punch) => {
     const logs = lStr ? JSON.parse(lStr) : [];
     const idx = logs.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      logs[idx] = { ...logs[idx], ...punch };
+      logs[idx] = { ...punch };
     } else {
       logs.unshift(punch);
     }
@@ -187,7 +187,7 @@ export const savePunchLocally = (punch) => {
       const todayList = tStr ? JSON.parse(tStr) : [];
       const idx = todayList.findIndex(a => `${a.emp_id}_${a.date}` === key);
       if (idx !== -1) {
-        todayList[idx] = { ...todayList[idx], ...punch };
+        todayList[idx] = { ...punch };
       } else {
         todayList.unshift(punch);
       }
@@ -201,7 +201,7 @@ export const savePunchLocally = (punch) => {
     const rList = rStr ? JSON.parse(rStr) : [];
     const idx = rList.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      rList[idx] = { ...rList[idx], ...punch };
+      rList[idx] = { ...punch };
     } else {
       rList.unshift(punch);
     }
@@ -224,24 +224,11 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     map.set(`${s.emp_id}_${s.date}`, s);
   }
 
-  // 2. Overlay any local punches that might not have hit the server yet (e.g. offline mode)
+  // 2. Only add offline local punches that do not exist on the server yet
   for (const l of localList) {
     const key = `${l.emp_id}_${l.date}`;
     if (!map.has(key)) {
       map.set(key, l);
-    } else {
-      const serverRec = map.get(key);
-      // Augment with local if local has punch_photo or clock_out that server lacks
-      map.set(key, {
-        ...l,
-        ...serverRec,
-        clock_out: serverRec.clock_out || l.clock_out || null,
-        total_hours: serverRec.total_hours || l.total_hours || null,
-        ot_hours: serverRec.ot_hours || l.ot_hours || null,
-        ot_minutes: serverRec.ot_minutes || l.ot_minutes || null,
-        punch_photo: serverRec.punch_photo || l.punch_photo || null,
-        notes: serverRec.notes || l.notes || null
-      });
     }
   }
 
