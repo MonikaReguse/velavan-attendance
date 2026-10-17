@@ -13,6 +13,7 @@ import {
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
+import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(() => {
@@ -24,8 +25,10 @@ export default function AdminDashboard({ setActiveTab }) {
   });
   const [todayAttendance, setTodayAttendance] = useState(() => {
     try {
-      const a = localStorage.getItem('velavan_today_attendance');
-      if (a) return JSON.parse(a);
+      const allLocal = getLocalAttendance();
+      const currentDay = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const todayList = allLocal.filter(a => a.date === currentDay);
+      if (todayList.length > 0) return todayList;
     } catch {}
     return [];
   });
@@ -50,18 +53,37 @@ export default function AdminDashboard({ setActiveTab }) {
         api.getTodayAttendance().catch(() => null),
         api.getEmployees().catch(() => null)
       ]);
-      if (sumRes) {
-        setSummary(sumRes);
-        try { localStorage.setItem('velavan_dashboard_summary', JSON.stringify(sumRes)); } catch {}
-      }
-      if (attRes) {
-        const cleanToday = (attRes || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-        setTodayAttendance(cleanToday);
-        try { localStorage.setItem('velavan_today_attendance', JSON.stringify(cleanToday)); } catch {}
-      }
       if (Array.isArray(empRes) && empRes.length > 0) {
         setEmployees(empRes);
       }
+
+      const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
+      const currentDay = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const todayOnly = merged.filter(a => a.date === currentDay);
+      setTodayAttendance(todayOnly);
+
+      const totalEmp = (empRes && empRes.length > 0) ? empRes.length : (employees.length || 9);
+      const presentToday = todayOnly.length;
+      const lateToday = todayOnly.filter(a => a.status === 'late' || a.is_late).length;
+      const absentToday = Math.max(0, totalEmp - presentToday);
+
+      const calculatedSummary = {
+        total_employees: totalEmp,
+        present_today: presentToday,
+        late_today: lateToday,
+        absent_today: absentToday,
+        ...sumRes
+      };
+      if (sumRes && sumRes.present_today >= presentToday) {
+        calculatedSummary.present_today = sumRes.present_today;
+        calculatedSummary.absent_today = sumRes.absent_today;
+      } else {
+        calculatedSummary.present_today = presentToday;
+        calculatedSummary.absent_today = absentToday;
+      }
+
+      setSummary(calculatedSummary);
+      try { localStorage.setItem('velavan_dashboard_summary', JSON.stringify(calculatedSummary)); } catch {}
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -71,6 +93,12 @@ export default function AdminDashboard({ setActiveTab }) {
 
   useEffect(() => {
     loadDashboardData();
+
+    const handleRealtimeUpdate = () => {
+      loadDashboardData();
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
   }, []);
 
   const unenrolledCount = employees.filter(e => !e.has_face_enrolled).length;

@@ -32,6 +32,7 @@ import PunchSuccessModal from '../components/PunchSuccessModal';
 import PinFallbackModal from '../components/PinFallbackModal';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
 
 export default function OfficeFaceLockKiosk() {
   const [modelReady, setModelReady] = useState(false);
@@ -40,7 +41,14 @@ export default function OfficeFaceLockKiosk() {
   const [enrolledCount, setEnrolledCount] = useState(0);
   const [mode, setMode] = useState('auto'); // 'auto', 'in', 'out'
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
-  const [todayPunches, setTodayPunches] = useState([]);
+  const [todayPunches, setTodayPunches] = useState(() => {
+    try {
+      const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      return getLocalAttendance().filter(a => a.date === todayStr);
+    } catch {
+      return [];
+    }
+  });
   const [summary, setSummary] = useState({ total_employees: 0, present: 0, late: 0, absent: 0 });
   
   // Feedback states
@@ -72,8 +80,14 @@ export default function OfficeFaceLockKiosk() {
     setupFaceLock();
     fetchAttendanceData();
 
+    const handleRealtimeUpdate = () => {
+      fetchAttendanceData();
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+
     return () => {
       stopCamera();
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
     };
   }, []);
 
@@ -112,12 +126,24 @@ export default function OfficeFaceLockKiosk() {
     try {
       const [list, sum] = await Promise.all([
         api.getTodayAttendance().catch(() => []),
-        api.getTodaySummary().catch(() => ({ total_employees: 0, present: 0, late: 0, absent: 0 }))
+        api.getTodaySummary().catch(() => null)
       ]);
-      setTodayPunches(list || []);
-      setSummary(sum || {});
+      const merged = mergeAttendanceWithLocal(Array.isArray(list) ? list : []);
+      const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const todayOnly = merged.filter(p => p.date === todayStr);
+      setTodayPunches(todayOnly);
+      if (sum) {
+        setSummary(sum);
+      } else {
+        setSummary(prev => ({
+          ...prev,
+          present: todayOnly.length,
+          late: todayOnly.filter(p => p.is_late || p.status === 'late').length,
+          absent: Math.max(0, (prev.total_employees || 9) - todayOnly.length)
+        }));
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching kiosk attendance data:', err);
     }
   };
 
@@ -330,21 +356,7 @@ export default function OfficeFaceLockKiosk() {
           result.attendance.punch_photo = snapshot;
         }
         if (result.attendance) {
-          try {
-            const bStr = localStorage.getItem('velavan_master_database_backup');
-            if (bStr) {
-              const b = JSON.parse(bStr);
-              if (Array.isArray(b?.attendance)) {
-                const attIdx = b.attendance.findIndex(a => a.emp_id === result.attendance.emp_id && a.date === result.attendance.date);
-                if (attIdx !== -1) {
-                  b.attendance[attIdx] = { ...b.attendance[attIdx], ...result.attendance };
-                } else {
-                  b.attendance.unshift(result.attendance);
-                }
-                localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
-              }
-            }
-          } catch (e) {}
+          savePunchLocally(result.attendance);
         }
         setPunchModalData(result);
         fetchAttendanceData();
@@ -367,21 +379,7 @@ export default function OfficeFaceLockKiosk() {
   const handlePinPunchSuccess = (result) => {
     playChime('success');
     if (result.attendance) {
-      try {
-        const bStr = localStorage.getItem('velavan_master_database_backup');
-        if (bStr) {
-          const b = JSON.parse(bStr);
-          if (Array.isArray(b?.attendance)) {
-            const attIdx = b.attendance.findIndex(a => a.emp_id === result.attendance.emp_id && a.date === result.attendance.date);
-            if (attIdx !== -1) {
-              b.attendance[attIdx] = { ...b.attendance[attIdx], ...result.attendance };
-            } else {
-              b.attendance.unshift(result.attendance);
-            }
-            localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
-          }
-        }
-      } catch (e) {}
+      savePunchLocally(result.attendance);
     }
     setPunchModalData(result);
     fetchAttendanceData();

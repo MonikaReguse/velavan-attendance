@@ -15,20 +15,10 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 
 export default function AttendanceReports() {
-  const [data, setData] = useState(() => {
-    try {
-      const b = localStorage.getItem('velavan_master_database_backup');
-      if (b) {
-        const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
-          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-        }
-      }
-    } catch {}
-    return [];
-  });
+  const [data, setData] = useState(() => getLocalAttendance());
   const [employees, setEmployees] = useState(() => {
     try {
       const b = localStorage.getItem('velavan_master_database_backup');
@@ -55,8 +45,15 @@ export default function AttendanceReports() {
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const endStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     
-    setFilters({ startDate: startStr, endDate: endStr, department: '' });
-    loadReport({ startDate: startStr, endDate: endStr, department: '' });
+    const initialFilters = { startDate: startStr, endDate: endStr, department: '' };
+    setFilters(initialFilters);
+    loadReport(initialFilters);
+
+    const handleRealtimeUpdate = () => {
+      loadReport(filters);
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
   }, []);
 
   const loadReport = async (f) => {
@@ -66,11 +63,19 @@ export default function AttendanceReports() {
         api.getAttendanceHistory(f),
         api.getEmployees()
       ]);
-      const cleanHistory = (resHistory || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-      setData(cleanHistory);
+      const merged = mergeAttendanceWithLocal(resHistory || []);
+      let filtered = merged;
+      if (f?.startDate) filtered = filtered.filter(a => a.date >= f.startDate);
+      if (f?.endDate) filtered = filtered.filter(a => a.date <= f.endDate);
+      if (f?.department) {
+        const empMap = new Map((resEmployees || []).map(e => [e.emp_id, e.department]));
+        filtered = filtered.filter(a => empMap.get(a.emp_id) === f.department);
+      }
+      setData(filtered);
       setEmployees(resEmployees || []);
     } catch (err) {
       console.error('Error loading report data:', err);
+      setData(getLocalAttendance());
     } finally {
       setLoading(false);
     }

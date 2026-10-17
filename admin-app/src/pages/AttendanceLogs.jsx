@@ -14,27 +14,10 @@ import {
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
 
 export default function AttendanceLogs() {
-  const [logs, setLogs] = useState(() => {
-    try {
-      const b = localStorage.getItem('velavan_master_database_backup');
-      if (b) {
-        const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
-          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-        }
-      }
-      const l = localStorage.getItem('velavan_attendance_logs_cache');
-      if (l) {
-        const parsed = JSON.parse(l);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-        }
-      }
-    } catch {}
-    return [];
-  });
+  const [logs, setLogs] = useState(() => getLocalAttendance());
   const [employees, setEmployees] = useState(() => {
     try {
       const b = localStorage.getItem('velavan_master_database_backup');
@@ -68,6 +51,12 @@ export default function AttendanceLogs() {
   useEffect(() => {
     loadEmployees();
     fetchLogs();
+
+    const handleRealtimeUpdate = () => {
+      fetchLogs();
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
   }, []);
 
   const loadEmployees = async () => {
@@ -88,15 +77,26 @@ export default function AttendanceLogs() {
     try {
       setLoading(true);
       const data = await api.getAttendanceHistory(filters);
-      if (Array.isArray(data)) {
-        const cleanData = data.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-        setLogs(cleanData);
-        try {
-          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(cleanData));
-        } catch (e) {}
+      const merged = mergeAttendanceWithLocal(Array.isArray(data) ? data : []);
+
+      let filtered = merged;
+      if (filters.startDate) {
+        filtered = filtered.filter(l => l.date >= filters.startDate);
       }
+      if (filters.endDate) {
+        filtered = filtered.filter(l => l.date <= filters.endDate);
+      }
+      if (filters.status) {
+        filtered = filtered.filter(l => l.status === filters.status);
+      }
+      if (filters.department) {
+        const empMap = new Map(employees.map(e => [e.emp_id, e.department]));
+        filtered = filtered.filter(l => empMap.get(l.emp_id) === filters.department);
+      }
+      setLogs(filtered);
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching attendance history:', err);
+      setLogs(getLocalAttendance());
     } finally {
       setLoading(false);
     }
@@ -139,7 +139,14 @@ export default function AttendanceLogs() {
   const handleSubmitManual = async (e) => {
     e.preventDefault();
     try {
-      await api.recordManualAttendance(formData);
+      const res = await api.recordManualAttendance(formData);
+      const savedPunch = {
+        ...formData,
+        method: 'manual',
+        status: formData.status || 'present',
+        notes: formData.notes || 'HR manual adjustment'
+      };
+      savePunchLocally(savedPunch);
       setModalOpen(false);
       fetchLogs();
     } catch (err) {
@@ -147,10 +154,17 @@ export default function AttendanceLogs() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, emp_id, date) => {
     if (!confirm('Are you sure you want to delete this attendance record?')) return;
     try {
-      await api.deleteAttendance(id);
+      if (id) await api.deleteAttendance(id);
+      try {
+        const lStr = localStorage.getItem('velavan_attendance_logs_cache');
+        if (lStr) {
+          const l = JSON.parse(lStr).filter(x => !(x.id === id || (x.emp_id === emp_id && x.date === date)));
+          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
+        }
+      } catch {}
       fetchLogs();
     } catch (err) {
       alert('Error: ' + err.message);
@@ -371,7 +385,7 @@ export default function AttendanceLogs() {
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(log.id)}
+                            onClick={() => handleDelete(log.id, log.emp_id, log.date)}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
                             title="Delete Record"
                           >

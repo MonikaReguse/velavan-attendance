@@ -24,6 +24,7 @@ import {
 import PunchSuccessModal from '../components/PunchSuccessModal';
 import PinFallbackModal from '../components/PinFallbackModal';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
 
 export default function FaceLockKiosk() {
   const [modelReady, setModelReady] = useState(false);
@@ -32,7 +33,14 @@ export default function FaceLockKiosk() {
   const [enrolledCount, setEnrolledCount] = useState(0);
   const [mode, setMode] = useState('auto'); // 'auto', 'in', 'out'
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
-  const [todayPunches, setTodayPunches] = useState([]);
+  const [todayPunches, setTodayPunches] = useState(() => {
+    try {
+      const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      return getLocalAttendance().filter(a => a.date === todayStr).slice(0, 8);
+    } catch {
+      return [];
+    }
+  });
   
   // Feedback states
   const [scanStatus, setScanStatus] = useState('Initializing FaceLock Scanner...');
@@ -63,8 +71,14 @@ export default function FaceLockKiosk() {
     setupFaceLock();
     fetchRecentPunches();
 
+    const handleRealtimeUpdate = () => {
+      fetchRecentPunches();
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+
     return () => {
       stopCamera();
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
     };
   }, []);
 
@@ -102,8 +116,10 @@ export default function FaceLockKiosk() {
 
   const fetchRecentPunches = async () => {
     try {
-      const list = await api.getTodayAttendance();
-      setTodayPunches(list.slice(0, 8));
+      const list = await api.getTodayAttendance().catch(() => []);
+      const merged = mergeAttendanceWithLocal(Array.isArray(list) ? list : []);
+      const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      setTodayPunches(merged.filter(a => a.date === todayStr).slice(0, 8));
     } catch (err) {
       console.error(err);
     }
@@ -295,6 +311,9 @@ export default function FaceLockKiosk() {
         if (!res.employee && employee) {
           res.employee = employee;
         }
+        if (res.attendance) {
+          savePunchLocally(res.attendance);
+        }
         setPunchModalData(res);
         fetchRecentPunches();
         setScanStatus(`Attendance recorded for ${employee.name}! Camera closed.`);
@@ -314,6 +333,9 @@ export default function FaceLockKiosk() {
 
   const handleManualPunchSuccess = (data) => {
     playChime('success');
+    if (data?.attendance) {
+      savePunchLocally(data.attendance);
+    }
     setPunchModalData(data);
     fetchRecentPunches();
   };

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatTime } from '../services/timeUtils';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
 
 export default function ManualAttendanceUpdate() {
   const [employees, setEmployees] = useState(() => {
@@ -38,16 +39,7 @@ export default function ManualAttendanceUpdate() {
     return [];
   });
   const [recentLogs, setRecentLogs] = useState(() => {
-    try {
-      const b = localStorage.getItem('velavan_master_database_backup');
-      if (b) {
-        const p = JSON.parse(b);
-        if (Array.isArray(p?.attendance) && p.attendance.length > 0) {
-          return p.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14').slice(0, 50);
-        }
-      }
-    } catch {}
-    return [];
+    return getLocalAttendance().slice(0, 50);
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +60,13 @@ export default function ManualAttendanceUpdate() {
 
   useEffect(() => {
     loadData();
+
+    const handleRealtimeUpdate = () => {
+      const all = getLocalAttendance();
+      setRecentLogs(all.slice(0, 50));
+    };
+    window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
   }, []);
 
   const loadData = async () => {
@@ -78,8 +77,8 @@ export default function ManualAttendanceUpdate() {
         api.getAttendanceHistory({ limit: 50 })
       ]);
       setEmployees(empList || []);
-      const cleanHistory = (historyList || []).filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
-      setRecentLogs(cleanHistory);
+      const cleanHistory = mergeAttendanceWithLocal(historyList || []);
+      setRecentLogs(cleanHistory.slice(0, 50));
 
       if (empList && empList.length > 0 && !selectedEmpId) {
         setSelectedEmpId(empList[0].emp_id);
@@ -87,6 +86,7 @@ export default function ManualAttendanceUpdate() {
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
+      setRecentLogs(getLocalAttendance().slice(0, 50));
     } finally {
       setLoading(false);
     }
@@ -232,6 +232,16 @@ export default function ManualAttendanceUpdate() {
       const res = await api.recordManualAttendance(payload);
 
       if (res.success) {
+        const savedPunch = {
+          ...payload,
+          employee_name: currentEmployee?.name || selectedEmpId,
+          department: currentEmployee?.department,
+          designation: currentEmployee?.designation,
+          total_hours: calculatedStats.totalHours,
+          ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0
+        };
+        savePunchLocally(savedPunch);
+
         setFeedback({
           type: 'success',
           message: editingId
@@ -240,9 +250,9 @@ export default function ManualAttendanceUpdate() {
         });
 
         handleResetForm();
-        // Refresh logs list
         const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
-        setRecentLogs(updatedLogs || []);
+        const merged = mergeAttendanceWithLocal(updatedLogs || []);
+        setRecentLogs(merged.slice(0, 50));
       } else {
         let msg = res.error || 'Failed to save attendance';
         if (msg.includes('FOREIGN KEY')) {
@@ -259,13 +269,21 @@ export default function ManualAttendanceUpdate() {
   };
 
   // Delete attendance record
-  const handleDelete = async (id, empName, recordDate) => {
+  const handleDelete = async (id, empName, recordDate, emp_id) => {
     if (!confirm(`Are you sure you want to delete attendance record for ${empName} on ${recordDate}?`)) return;
     try {
-      await api.deleteAttendance(id);
+      if (id) await api.deleteAttendance(id);
+      try {
+        const lStr = localStorage.getItem('velavan_attendance_logs_cache');
+        if (lStr) {
+          const l = JSON.parse(lStr).filter(x => !(x.id === id || (x.emp_id === emp_id && x.date === recordDate)));
+          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
+        }
+      } catch {}
       setFeedback({ type: 'success', message: 'Attendance record deleted successfully' });
       const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
-      setRecentLogs(updatedLogs || []);
+      const merged = mergeAttendanceWithLocal(updatedLogs || []);
+      setRecentLogs(merged.slice(0, 50));
     } catch (err) {
       setFeedback({ type: 'error', message: 'Error deleting record: ' + err.message });
     }
@@ -696,7 +714,7 @@ export default function ManualAttendanceUpdate() {
                           </button>
 
                           <button
-                            onClick={() => handleDelete(item.id, item.employee_name, item.date)}
+                            onClick={() => handleDelete(item.id, item.employee_name, item.date, item.emp_id)}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
                             title="Delete this record"
                           >

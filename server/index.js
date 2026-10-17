@@ -58,8 +58,11 @@ function loadDbSnapshot() {
     // Find any snapshot employees not present in the current database table
     const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id));
 
-    if (currentEmps.length === 0 || missingEmployees.length > 0) {
-      console.log(`[Snapshot Auto-Restore] Synchronizing database with snapshot (restoring ${missingEmployees.length} missing employees)...`);
+    const currentAttCount = db.prepare('SELECT COUNT(*) as count FROM attendance').get().count;
+    const shouldRestore = currentEmps.length === 0 || missingEmployees.length > 0 || (currentAttCount === 0 && Array.isArray(data.attendance) && data.attendance.length > 0);
+
+    if (shouldRestore) {
+      console.log(`[Snapshot Auto-Restore] Synchronizing database with snapshot (restoring ${missingEmployees.length} missing employees, ${data.attendance?.length || 0} attendance records)...`);
       const restoreTx = db.transaction(() => {
         for (const emp of data.employees) {
           const keys = Object.keys(emp).filter(k => k !== 'id');

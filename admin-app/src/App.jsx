@@ -13,6 +13,7 @@ import FaceEnrollment from './pages/FaceEnrollment';
 import AdminUnlockModal from './components/AdminUnlockModal';
 import { api } from './services/api';
 import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from './services/officialStaffProfiles';
+import { getLocalAttendance, mergeAttendanceWithLocal } from './services/attendanceStorage';
 
 export default function App() {
   // Default to Kiosk Mode (Employee FaceLock Only)
@@ -263,11 +264,14 @@ export default function App() {
           const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
           const missingAtts = localAtts.filter(a => finalEmpKeys.has(a.emp_id) && !serverAttKeys.has(`${a.emp_id}_${a.date}`));
 
+          // Always merge server and local attendance records safely
+          const finalMergedAtts = mergeAttendanceWithLocal([...serverAtts, ...missingAtts]);
+
           if (profileEnriched || missingAtts.length > 0) {
             console.log(`[Disaster Recovery] Syncing enriched profile details and ${missingAtts.length} attendance records to server...`);
             const payload = {
               employees: mergedServerEmps,
-              attendance: [...serverAtts, ...missingAtts],
+              attendance: finalMergedAtts,
               leave_requests: backupData?.leave_requests || []
             };
             await api.restoreBackup(payload).catch(console.error);
@@ -275,11 +279,11 @@ export default function App() {
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
             window.dispatchEvent(new CustomEvent('velavan_data_restored'));
           } else {
-            // Update local backup to match server
+            // Update local backup to match server while preserving all local attendance
             localStorage.setItem('velavan_master_database_backup', JSON.stringify({
               ...backupData,
               employees: mergedServerEmps,
-              attendance: serverAtts
+              attendance: finalMergedAtts
             }));
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
           }

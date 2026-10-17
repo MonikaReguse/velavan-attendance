@@ -10,10 +10,18 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useApp } from '../context/AppContext';
+import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 
 export default function MyAttendance() {
   const { activeEmployee } = useApp();
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(() => {
+    try {
+      const all = getLocalAttendance();
+      return activeEmployee ? all.filter(a => a.emp_id === activeEmployee.emp_id) : all;
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -26,9 +34,12 @@ export default function MyAttendance() {
     try {
       setLoading(true);
       const histRes = await api.getHistory(emp_id);
-      setHistory(histRes);
+      const merged = mergeAttendanceWithLocal(Array.isArray(histRes) ? histRes : []).filter(h => h.emp_id === emp_id);
+      setHistory(merged);
     } catch (err) {
       console.error(err);
+      const local = getLocalAttendance().filter(h => h.emp_id === emp_id);
+      setHistory(local);
     } finally {
       setLoading(false);
     }
