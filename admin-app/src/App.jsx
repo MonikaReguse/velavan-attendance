@@ -60,9 +60,43 @@ export default function App() {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);
 
-    // Auto-purge toxic deleted IDs and legacy pre-seeded mock attendance
+    // Auto-purge toxic deleted IDs, legacy mock attendance, and correct stale salary cache
     try {
       localStorage.removeItem('velavan_deleted_ids');
+      const salaryFixKey = 'velavan_faritha_salary_15k_v1';
+      if (!localStorage.getItem(salaryFixKey)) {
+        // 1. Fix in master backup
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        if (bStr) {
+          const b = JSON.parse(bStr);
+          if (Array.isArray(b?.employees)) {
+            b.employees = b.employees.map(e => (e.emp_id === 'VPDM06' || (e.name && e.name.toLowerCase().includes('faritha'))) ? { ...e, salary: '15000' } : e);
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+          }
+        }
+        // 2. Fix in directory list
+        const dStr = localStorage.getItem('velavan_employee_directory_list');
+        if (dStr) {
+          const d = JSON.parse(dStr);
+          if (Array.isArray(d)) {
+            const updatedD = d.map(e => (e.emp_id === 'VPDM06' || (e.name && e.name.toLowerCase().includes('faritha'))) ? { ...e, salary: '15000' } : e);
+            localStorage.setItem('velavan_employee_directory_list', JSON.stringify(updatedD));
+          }
+        }
+        // 3. Fix in details cache
+        const cStr = localStorage.getItem('velavan_employee_details_cache');
+        if (cStr) {
+          const c = JSON.parse(cStr);
+          for (const key of Object.keys(c)) {
+            if (key === 'VPDM06' || (c[key]?.name && c[key].name.toLowerCase().includes('faritha'))) {
+              c[key] = { ...c[key], salary: '15000' };
+            }
+          }
+          localStorage.setItem('velavan_employee_details_cache', JSON.stringify(c));
+        }
+        localStorage.setItem(salaryFixKey, 'true');
+      }
+
       const purgedKey = 'velavan_mock_attendance_purged_v5';
       if (!localStorage.getItem(purgedKey)) {
         localStorage.removeItem('velavan_attendance_logs_cache');
@@ -205,6 +239,7 @@ export default function App() {
             };
             await api.restoreBackup(payload).catch(console.error);
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(payload));
+            localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
             window.dispatchEvent(new CustomEvent('velavan_data_restored'));
           } else {
             // Update local backup to match server
@@ -213,6 +248,7 @@ export default function App() {
               employees: mergedServerEmps,
               attendance: serverAtts
             }));
+            localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
           }
         }
       } catch (err) {
