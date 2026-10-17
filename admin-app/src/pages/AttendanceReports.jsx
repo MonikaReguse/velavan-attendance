@@ -8,6 +8,8 @@ import {
   TrendingUp, 
   Building2,
   FileSpreadsheet,
+  FileText,
+  FileDown,
   IndianRupee,
   Sparkles,
   Award,
@@ -16,6 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
+import { exportAttendancePDF, exportPayrollPDF } from '../services/pdfExport';
 
 export default function AttendanceReports() {
   const [data, setData] = useState(() => getLocalAttendance());
@@ -89,6 +92,14 @@ export default function AttendanceReports() {
   const handleExportPayrollCSV = () => {
     const url = api.getPayrollExportUrl(filters);
     window.open(url, '_blank');
+  };
+
+  const handleDownloadAttendancePDF = () => {
+    exportAttendancePDF({ data, filters });
+  };
+
+  const handleDownloadPayrollPDF = () => {
+    exportPayrollPDF({ payrollStats, filters });
   };
 
   // Compute analytics metrics
@@ -177,23 +188,44 @@ export default function AttendanceReports() {
         <div>
           <h2 className="text-lg font-bold text-slate-800">Attendance Analytics & Payroll Reports</h2>
           <p className="text-xs text-slate-500">
-            Generate monthly timesheets, department metrics, work-hour reports, and download payroll-ready CSVs with Full Present (+2 Days Extra Salary) calculations.
+            Generate monthly timesheets, department metrics, work-hour reports, and download payroll-ready PDF and CSV reports with Full Present (+2 Days Extra Salary) calculations.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* PDF Format Downloads */}
+          <button
+            onClick={handleDownloadAttendancePDF}
+            className="flex items-center space-x-1.5 bg-[#8b0000] hover:bg-[#6b0000] text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Download Official Attendance Report in PDF Format"
+          >
+            <FileDown className="w-4 h-4" />
+            <span>Attendance PDF</span>
+          </button>
+          <button
+            onClick={handleDownloadPayrollPDF}
+            className="flex items-center space-x-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Payroll PDF (+2 Days)</span>
+          </button>
+
+          {/* CSV Downloads */}
           <button
             onClick={handleExportCSV}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Export Attendance Logs as CSV"
           >
             <Download className="w-4 h-4" />
-            <span>Attendance Logs CSV</span>
+            <span>Logs CSV</span>
           </button>
           <button
             onClick={handleExportPayrollCSV}
-            className="flex items-center space-x-1.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition-all"
+            className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2.5 rounded-xl shadow-xs transition-all"
+            title="Export Payroll Table as CSV"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Payroll CSV (+2 Days Bonus)</span>
+            <span>Payroll CSV</span>
           </button>
         </div>
       </div>
@@ -292,6 +324,14 @@ export default function AttendanceReports() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button
+              onClick={handleDownloadPayrollPDF}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors"
+              title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>Download Payroll PDF</span>
+            </button>
             <span className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded-xl font-bold text-xs border border-amber-300 flex items-center space-x-1.5">
               <Award className="w-4 h-4 text-amber-700" />
               <span>{fullPresentCount} Qualified for +2 Days Salary</span>

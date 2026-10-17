@@ -9,12 +9,14 @@ import {
   Edit3, 
   Trash2,
   Clock,
-  UserCheck
+  UserCheck,
+  FileDown
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
+import { exportAttendancePDF } from '../services/pdfExport';
 
 export default function AttendanceLogs() {
   const [logs, setLogs] = useState(() => getLocalAttendance());
@@ -176,13 +178,25 @@ export default function AttendanceLogs() {
             View full historical audit trail of employee clock-in/out records, verify FaceLock captures, and make manual corrections.
           </p>
         </div>
-        <button
-          onClick={handleOpenManual}
-          className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Manual Punch Entry</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => exportAttendancePDF({ data: logs, filters })}
+            className="flex items-center space-x-1.5 bg-[#8b0000] hover:bg-[#6b0000] text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors"
+            title="Download Filtered Attendance Logs as PDF"
+          >
+            <FileDown className="w-4 h-4" />
+            <span>Download PDF</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenManual}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Manual Punch Entry</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Toolbar */}

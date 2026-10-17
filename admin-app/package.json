@@ -12,6 +12,8 @@
   "dependencies": {
     "@vladmandic/face-api": "^1.7.15",
     "canvas-confetti": "^1.9.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9",
     "lucide-react": "^1.55.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
