@@ -72,9 +72,9 @@ async function sync() {
       const updates = keys.map(k => `${k} = ?`).join(', ');
       const values = keys.map(k => emp[k]);
 
-      const exists = db.prepare('SELECT id FROM employees WHERE emp_id = ?').get(emp.emp_id);
+      const exists = db.prepare('SELECT id FROM employees WHERE id = ? OR emp_id = ?').get(emp.id, emp.emp_id);
       if (exists) {
-        db.prepare(`UPDATE employees SET ${updates} WHERE emp_id = ?`).run(...values, emp.emp_id);
+        db.prepare(`UPDATE employees SET ${updates} WHERE id = ?`).run(...values, exists.id);
       } else {
         db.prepare(`INSERT INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
       }
@@ -88,9 +88,9 @@ async function sync() {
         const updates = keys.map(k => `${k} = ?`).join(', ');
         const values = keys.map(k => att[k]);
 
-        const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
+        const exists = db.prepare('SELECT id FROM attendance WHERE id = ? OR (emp_id = ? AND date = ?)').get(att.id, att.emp_id, att.date);
         if (exists) {
-          db.prepare(`UPDATE attendance SET ${updates} WHERE emp_id = ? AND date = ?`).run(...values, att.emp_id, att.date);
+          db.prepare(`UPDATE attendance SET ${updates} WHERE id = ?`).run(...values, exists.id);
         } else {
           db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
         }
