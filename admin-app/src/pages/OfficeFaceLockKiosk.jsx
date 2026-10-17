@@ -80,14 +80,27 @@ export default function OfficeFaceLockKiosk() {
     setupFaceLock();
     fetchAttendanceData();
 
+    // 1. Auto-refresh attendance ticker every 10 seconds for real-time multi-device sync
+    const pollTimer = setInterval(() => {
+      fetchAttendanceData();
+    }, 10000);
+
+    // 2. Real-time custom event listeners
     const handleRealtimeUpdate = () => {
       fetchAttendanceData();
     };
+    const handleEmployeesUpdated = () => {
+      setupFaceLock();
+      fetchAttendanceData();
+    };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleEmployeesUpdated);
 
     return () => {
+      clearInterval(pollTimer);
       stopCamera();
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleEmployeesUpdated);
     };
   }, []);
 

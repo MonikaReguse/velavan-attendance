@@ -53,11 +53,32 @@ export default function AttendanceReports() {
     setFilters(initialFilters);
     loadReport(initialFilters);
 
+    // 1. Auto-refresh reports every 15 seconds for live multi-device sync
+    const timer = setInterval(() => {
+      loadReport(filters);
+    }, 15000);
+
+    // 2. Instant refresh when admin tabs back into the browser
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadReport(filters);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // 3. Real-time custom event listeners
     const handleRealtimeUpdate = () => {
       loadReport(filters);
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
-    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
+    };
   }, []);
 
   const loadReport = async (f) => {
@@ -67,16 +88,32 @@ export default function AttendanceReports() {
         api.getAttendanceHistory(f),
         api.getEmployees()
       ]);
+      const validEmps = Array.isArray(resEmployees) ? resEmployees : [];
+      setEmployees(validEmps);
+
+      const empMap = new Map(validEmps.map(e => [e.emp_id, e]));
       const merged = mergeAttendanceWithLocal(resHistory || []);
-      let filtered = merged;
+
+      // Dynamic cascade: ensure attendance record always displays the employee's live department & name
+      let filtered = merged.map(r => {
+        const emp = empMap.get(r.emp_id);
+        if (emp) {
+          return {
+            ...r,
+            employee_name: emp.name || r.employee_name || r.emp_id,
+            department: emp.department || r.department || 'Digital Marketing',
+            role: emp.role || r.role || 'Staff'
+          };
+        }
+        return r;
+      });
+
       if (f?.startDate) filtered = filtered.filter(a => a.date >= f.startDate);
       if (f?.endDate) filtered = filtered.filter(a => a.date <= f.endDate);
       if (f?.department) {
-        const empMap = new Map((resEmployees || []).map(e => [e.emp_id, e.department]));
-        filtered = filtered.filter(a => empMap.get(a.emp_id) === f.department);
+        filtered = filtered.filter(a => (a.department || 'Digital Marketing') === f.department);
       }
       setData(filtered);
-      setEmployees(resEmployees || []);
     } catch (err) {
       console.error('Error loading report data:', err);
       setData(getLocalAttendance());
@@ -140,7 +177,7 @@ export default function AttendanceReports() {
   // Department groupings
   const deptStats = {};
   data.forEach(r => {
-    const dept = (r.department && r.department !== 'Operations') ? r.department : (r.role || 'Digital Marketing');
+    const dept = r.department || 'Digital Marketing';
     if (!deptStats[dept]) {
       deptStats[dept] = { count: 0, hours: 0, late: 0 };
     }
@@ -192,7 +229,7 @@ export default function AttendanceReports() {
       return {
         emp_id: emp.emp_id,
         name: emp.name,
-        department: (emp.department && emp.department !== 'Operations') ? emp.department : (emp.role || 'Digital Marketing'),
+        department: emp.department || 'Digital Marketing',
         role: emp.role || 'Staff',
         avatar: emp.avatar,
         baseSalary,

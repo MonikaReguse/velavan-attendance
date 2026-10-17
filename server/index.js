@@ -52,19 +52,30 @@ function loadDbSnapshot() {
     const data = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
     if (!data || !Array.isArray(data.employees) || data.employees.length === 0) return;
 
+    // Check permanently deleted employee IDs so deleted staff are NEVER resurrected by snapshot
+    let deletedEmpIds = new Set();
+    try {
+      const delRow = db.prepare("SELECT value FROM settings WHERE key = 'deleted_emp_ids'").get();
+      if (delRow && delRow.value) {
+        const arr = JSON.parse(delRow.value);
+        if (Array.isArray(arr)) deletedEmpIds = new Set(arr);
+      }
+    } catch {}
+
     const currentEmps = db.prepare('SELECT emp_id, name FROM employees').all();
     const currentEmpKeys = new Set(currentEmps.map(e => e.emp_id));
 
-    // Find any snapshot employees not present in the current database table
-    const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id));
+    // Find any snapshot employees not present in the current database table and NOT deleted
+    const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id) && !deletedEmpIds.has(e.emp_id));
 
     const currentAttCount = db.prepare('SELECT COUNT(*) as count FROM attendance').get().count;
-    const shouldRestore = currentEmps.length === 0 || missingEmployees.length > 0 || (currentAttCount === 0 && Array.isArray(data.attendance) && data.attendance.length > 0);
+    const shouldRestore = currentEmps.length === 0 || (currentAttCount === 0 && Array.isArray(data.attendance) && data.attendance.length > 0);
 
     if (shouldRestore) {
       console.log(`[Snapshot Auto-Restore] Synchronizing database with snapshot (restoring ${missingEmployees.length} missing employees, ${data.attendance?.length || 0} attendance records)...`);
       const restoreTx = db.transaction(() => {
         for (const emp of data.employees) {
+          if (deletedEmpIds.has(emp.emp_id)) continue;
           const keys = Object.keys(emp).filter(k => k !== 'id');
           const placeholders = keys.map(() => '?').join(', ');
           const values = keys.map(k => emp[k]);
@@ -72,14 +83,20 @@ function loadDbSnapshot() {
         }
         if (Array.isArray(data.attendance)) {
           for (const att of data.attendance) {
-            const keys = Object.keys(att).filter(k => k !== 'id');
-            const placeholders = keys.map(() => '?').join(', ');
-            const values = keys.map(k => att[k]);
-            db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            if (deletedEmpIds.has(att.emp_id)) continue;
+            // Check if record for this employee and date already exists
+            const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
+            if (!exists) {
+              const keys = Object.keys(att).filter(k => k !== 'id');
+              const placeholders = keys.map(() => '?').join(', ');
+              const values = keys.map(k => att[k]);
+              db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            }
           }
         }
         if (Array.isArray(data.leave_requests)) {
           for (const l of data.leave_requests) {
+            if (deletedEmpIds.has(l.emp_id)) continue;
             const keys = Object.keys(l).filter(k => k !== 'id');
             const placeholders = keys.map(() => '?').join(', ');
             const values = keys.map(k => l[k]);
@@ -947,6 +964,20 @@ app.delete('/api/employees/:id', (req, res) => {
       db.prepare('DELETE FROM attendance WHERE emp_id = ?').run(target.emp_id);
       db.prepare('DELETE FROM leave_requests WHERE emp_id = ?').run(target.emp_id);
       db.prepare('DELETE FROM employees WHERE id = ?').run(target.id);
+
+      // Track deleted employee ID permanently in settings table so snapshot auto-restore NEVER resurrects it!
+      try {
+        const deletedRow = db.prepare("SELECT value FROM settings WHERE key = 'deleted_emp_ids'").get();
+        let deletedList = [];
+        if (deletedRow && deletedRow.value) {
+          try { deletedList = JSON.parse(deletedRow.value); } catch {}
+        }
+        if (!deletedList.includes(target.emp_id)) {
+          deletedList.push(target.emp_id);
+          db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('deleted_emp_ids', ?)").run(JSON.stringify(deletedList));
+        }
+      } catch (e) {}
+
       saveDbSnapshot();
     }
     res.json({ success: true });
@@ -1520,7 +1551,7 @@ app.put('/api/attendance/:id', (req, res) => {
             emp_id,
             emp_id,
             `${emp_id.toLowerCase()}@velavanproperties.com`,
-            'Operations',
+            'Digital Marketing',
             'Staff'
           );
         } catch (e) {}

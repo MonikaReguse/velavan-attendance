@@ -421,6 +421,10 @@ export default function AddEmployeeInfo({ setActiveTab }) {
           }
 
           localStorage.removeItem('velavan_deleted_ids');
+
+          // Broadcast real-time creation
+          window.dispatchEvent(new CustomEvent('velavan_employees_updated', { detail: fullCreatedEmp }));
+          window.dispatchEvent(new CustomEvent('velavan_attendance_updated'));
         } catch (e) {}
 
         setSuccessData({

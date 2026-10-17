@@ -295,7 +295,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
       phone: emp.phone || '',
       emergency_phone: emp.emergency_phone || '',
       role: emp.role || '',
-      department: (emp.department && emp.department !== 'Operations') ? emp.department : (emp.role || 'Digital Marketing'),
+      department: emp.department || 'Digital Marketing',
       doj: emp.doj || emp.join_date || '',
       salary: emp.salary || '',
       aadhaar_number: emp.aadhaar_number || '',
@@ -392,7 +392,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
       const payload = {
         ...(editingEmp || {}),
         ...formData,
-        department: (formData.department && formData.department.trim() && formData.department !== 'Operations') ? formData.department.trim() : (formData.role || editingEmp?.department || 'Digital Marketing'),
+        department: (formData.department && formData.department.trim()) ? formData.department.trim() : (editingEmp?.department || 'Digital Marketing'),
         avatar: formData.doc_photo || formData.avatar || editingEmp?.avatar || '',
         doc_photo: formData.doc_photo || formData.avatar || editingEmp?.doc_photo || '',
         account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
@@ -466,8 +466,43 @@ export default function EmployeeDirectory({ setActiveTab }) {
             }
           }
 
+          // Also update attendance caches so that any attendance record for this employee immediately shows the updated name and department
+          try {
+            const updateAttList = (listKey) => {
+              const str = localStorage.getItem(listKey);
+              if (str) {
+                const list = JSON.parse(str);
+                if (Array.isArray(list)) {
+                  let changed = false;
+                  const updated = list.map(a => {
+                    if (a.emp_id === oldEmpId || a.emp_id === confirmedKey) {
+                      changed = true;
+                      return {
+                        ...a,
+                        emp_id: confirmedKey,
+                        employee_name: fullEmp.name || a.employee_name,
+                        department: fullEmp.department || a.department,
+                        role: fullEmp.role || a.role,
+                        avatar: fullEmp.avatar || a.avatar
+                      };
+                    }
+                    return a;
+                  });
+                  if (changed) localStorage.setItem(listKey, JSON.stringify(updated));
+                }
+              }
+            };
+            updateAttList('velavan_attendance_logs_cache');
+            updateAttList('velavan_today_attendance');
+            updateAttList('velavan_realtime_punches');
+          } catch (e) {}
+
           // Immediately reflect in current state so UI never flickers to old salary
           setEmployees(prev => prev.map(e => (e.emp_id === oldEmpId || e.emp_id === confirmedKey || String(e.id) === String(targetId)) ? { ...e, ...fullEmp } : e));
+          
+          // Broadcast real-time update to all app pages
+          window.dispatchEvent(new CustomEvent('velavan_employees_updated', { detail: fullEmp }));
+          window.dispatchEvent(new CustomEvent('velavan_attendance_updated'));
         } catch (e) {}
       }
 
@@ -490,6 +525,13 @@ export default function EmployeeDirectory({ setActiveTab }) {
         await api.deleteEmployee(emp.id || emp.emp_id).catch(() => {});
       }
       try {
+        // Track in permanent deleted employees list
+        const delEmps = JSON.parse(localStorage.getItem('velavan_deleted_employees') || '[]');
+        if (emp.emp_id && !delEmps.includes(emp.emp_id)) {
+          delEmps.push(emp.emp_id);
+          localStorage.setItem('velavan_deleted_employees', JSON.stringify(delEmps));
+        }
+
         const cachedStr = localStorage.getItem('velavan_employee_details_cache');
         if (cachedStr) {
           const cached = JSON.parse(cachedStr);
@@ -522,7 +564,27 @@ export default function EmployeeDirectory({ setActiveTab }) {
           } catch (e) {}
         }
 
+        // Also remove from attendance caches
+        const purgeAtt = (k) => {
+          try {
+            const s = localStorage.getItem(k);
+            if (s) {
+              const arr = JSON.parse(s);
+              if (Array.isArray(arr)) {
+                localStorage.setItem(k, JSON.stringify(arr.filter(a => a.emp_id !== emp.emp_id)));
+              }
+            }
+          } catch (e) {}
+        };
+        purgeAtt('velavan_attendance_logs_cache');
+        purgeAtt('velavan_today_attendance');
+        purgeAtt('velavan_realtime_punches');
+
         localStorage.removeItem('velavan_deleted_ids');
+
+        // Broadcast real-time deletion
+        window.dispatchEvent(new CustomEvent('velavan_employees_updated', { detail: { deletedId: emp.emp_id } }));
+        window.dispatchEvent(new CustomEvent('velavan_attendance_updated'));
       } catch (e) {}
       await loadEmployees();
     } catch (err) {
@@ -1148,14 +1210,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
                         type="text"
                         required
                         value={formData.role}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            role: val,
-                            department: (!prev.department || prev.department === 'Operations') ? val : prev.department
-                          }));
-                        }}
+                        onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-medium text-slate-800"
                       />
                     </div>

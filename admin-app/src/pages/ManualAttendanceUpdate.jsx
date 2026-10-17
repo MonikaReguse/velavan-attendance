@@ -78,11 +78,13 @@ export default function ManualAttendanceUpdate() {
       loadData();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
     };
   }, []);
 

@@ -123,16 +123,18 @@ export default function AdminDashboard({ setActiveTab }) {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // 3. In-tab custom event
+    // 3. In-tab custom events
     const handleRealtimeUpdate = () => {
       loadDashboardData();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
     };
   }, []);
 
@@ -314,8 +316,8 @@ export default function AdminDashboard({ setActiveTab }) {
                 const displayName = (rec.employee_name && !rec.employee_name.startsWith('['))
                   ? rec.employee_name
                   : (empInfo.name || rec.emp_id);
-                const displayDept = rec.department || empInfo.department || 'Operations';
-                const displayRole = rec.role || empInfo.role || 'Staff';
+                const displayDept = empInfo.department || rec.department || 'Digital Marketing';
+                const displayRole = empInfo.role || rec.role || 'Staff';
                 const displayAvatar = resolvePhotoUrl(rec.punch_photo || rec.avatar || empInfo.avatar, displayName);
 
                 const isLate = rec.status === 'late';

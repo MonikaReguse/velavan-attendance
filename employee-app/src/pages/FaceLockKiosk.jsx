@@ -75,10 +75,26 @@ export default function FaceLockKiosk() {
       fetchRecentPunches();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
+
+    // Auto-polling every 10s for real-time multi-device sync
+    const pollTimer = setInterval(() => {
+      fetchRecentPunches();
+    }, 10000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRecentPunches();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       stopCamera();
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
     };
   }, []);
 

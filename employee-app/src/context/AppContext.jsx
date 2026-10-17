@@ -70,15 +70,24 @@ export function AppProvider({ children }) {
       const saved = localStorage.getItem('workpulse_authenticated_employee');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const refreshed = (empList || []).find(e => e.emp_id === parsed.emp_id) || parsed;
-        setActiveEmployee(refreshed);
-        setIsAuthenticated(true);
-        try {
-          localStorage.setItem('workpulse_authenticated_employee', JSON.stringify(refreshed));
-        } catch (e) {}
+        const refreshed = (empList || []).find(e => e.emp_id === parsed.emp_id);
+        if (refreshed) {
+          setActiveEmployee(refreshed);
+          setIsAuthenticated(true);
+          try {
+            localStorage.setItem('workpulse_authenticated_employee', JSON.stringify(refreshed));
+          } catch (e) {}
 
-        const myToday = (todayList || []).find(t => t.emp_id === refreshed.emp_id);
-        setTodayRecord(myToday || null);
+          const myToday = (todayList || []).find(t => t.emp_id === refreshed.emp_id);
+          setTodayRecord(myToday || null);
+        } else if (Array.isArray(empList) && empList.length > 0) {
+          // Employee was permanently deleted from server directory
+          console.warn('Active employee deleted from office roster, terminating session.');
+          logout();
+        } else {
+          setActiveEmployee(parsed);
+          setIsAuthenticated(true);
+        }
       } else {
         setIsAuthenticated(false);
         setActiveEmployee(null);
@@ -92,6 +101,33 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     loadData();
+
+    // 1. Auto-polling every 10 seconds for real-time mobile sync
+    const pollInterval = setInterval(() => {
+      loadData();
+    }, 10000);
+
+    // 2. Refresh when app tab or mobile screen unlocks
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 3. Listen to local and cross-tab update events
+    const handleCustomEvents = () => {
+      loadData();
+    };
+    window.addEventListener('velavan_attendance_updated', handleCustomEvents);
+    window.addEventListener('velavan_employees_updated', handleCustomEvents);
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('velavan_attendance_updated', handleCustomEvents);
+      window.removeEventListener('velavan_employees_updated', handleCustomEvents);
+    };
   }, []);
 
   const login = (employee) => {

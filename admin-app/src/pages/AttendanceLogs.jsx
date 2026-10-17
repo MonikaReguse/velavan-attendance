@@ -68,16 +68,19 @@ export default function AttendanceLogs() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // 3. In-tab custom event
+    // 3. In-tab custom events
     const handleRealtimeUpdate = () => {
+      loadEmployees();
       fetchLogs();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+      window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
     };
   }, []);
 
@@ -101,7 +104,20 @@ export default function AttendanceLogs() {
       const data = await api.getAttendanceHistory(filters);
       const merged = mergeAttendanceWithLocal(Array.isArray(data) ? data : []);
 
-      let filtered = merged;
+      const empMap = new Map((employees || []).map(e => [e.emp_id, e]));
+      let filtered = merged.map(l => {
+        const emp = empMap.get(l.emp_id);
+        if (emp) {
+          return {
+            ...l,
+            employee_name: emp.name || l.employee_name || l.emp_id,
+            department: emp.department || l.department || 'Digital Marketing',
+            role: emp.role || l.role || 'Staff'
+          };
+        }
+        return l;
+      });
+
       if (filters.startDate) {
         filtered = filtered.filter(l => l.date >= filters.startDate);
       }
@@ -112,8 +128,7 @@ export default function AttendanceLogs() {
         filtered = filtered.filter(l => l.status === filters.status);
       }
       if (filters.department) {
-        const empMap = new Map(employees.map(e => [e.emp_id, e.department]));
-        filtered = filtered.filter(l => empMap.get(l.emp_id) === filters.department);
+        filtered = filtered.filter(l => (l.department || 'Digital Marketing') === filters.department);
       }
       setLogs(filtered);
     } catch (err) {
@@ -331,9 +346,7 @@ export default function AttendanceLogs() {
                   const displayName = (log.employee_name && !log.employee_name.startsWith('[')) 
                     ? log.employee_name 
                     : (empInfo.name || log.emp_id);
-                  const displayDept = (empInfo.department && empInfo.department !== 'Operations')
-                    ? empInfo.department
-                    : (empInfo.role || (log.department && log.department !== 'Operations' ? log.department : '') || 'Digital Marketing');
+                  const displayDept = empInfo.department || log.department || 'Digital Marketing';
                   const displayAvatar = resolvePhotoUrl(log.punch_photo || log.avatar || empInfo.avatar, displayName);
 
                   const isLate = isLateArrival(log.clock_in, log.status);
