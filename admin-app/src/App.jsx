@@ -67,14 +67,19 @@ export default function App() {
       localStorage.removeItem('velavan_deleted_ids');
 
       // Fortified Auto-Heal: Guarantee all official staff have verified documents, avatars, face lock, and correct salaries
-      const docsFixKey = 'velavan_restore_staff_docs_faces_v6';
+      const docsFixKey = 'velavan_restore_staff_docs_faces_v7';
       if (!localStorage.getItem(docsFixKey)) {
         // 1. Fix in master backup
         const bStr = localStorage.getItem('velavan_master_database_backup');
         if (bStr) {
           const b = JSON.parse(bStr);
           if (Array.isArray(b?.employees)) {
-            b.employees = b.employees.map(enrichWithOfficialFallbacks);
+            b.employees = b.employees.map(e => {
+              if (e && (e.emp_id === 'VPDM04' || e.emp_id === 'VPDM05')) {
+                return enrichWithOfficialFallbacks({ ...e, avatar: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, doc_photo: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo });
+              }
+              return enrichWithOfficialFallbacks(e);
+            });
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
           }
         }
@@ -83,7 +88,12 @@ export default function App() {
         if (dStr) {
           const d = JSON.parse(dStr);
           if (Array.isArray(d)) {
-            const updatedD = d.map(enrichWithOfficialFallbacks);
+            const updatedD = d.map(e => {
+              if (e && (e.emp_id === 'VPDM04' || e.emp_id === 'VPDM05')) {
+                return enrichWithOfficialFallbacks({ ...e, avatar: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, doc_photo: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo });
+              }
+              return enrichWithOfficialFallbacks(e);
+            });
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(updatedD));
           }
         }
@@ -92,7 +102,12 @@ export default function App() {
         if (cStr) {
           const c = JSON.parse(cStr);
           for (const [k, fb] of Object.entries(OFFICIAL_STAFF_FALLBACKS)) {
-            c[k] = enrichWithOfficialFallbacks({ ...(c[k] || {}), ...fb, emp_id: k });
+            const cur = c[k] || {};
+            if (k === 'VPDM04' || k === 'VPDM05') {
+              cur.avatar = fb.avatar;
+              cur.doc_photo = fb.doc_photo;
+            }
+            c[k] = enrichWithOfficialFallbacks({ ...fb, ...cur, emp_id: k });
           }
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(c));
         }
