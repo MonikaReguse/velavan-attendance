@@ -229,13 +229,7 @@ export default function AttendanceLogs() {
             className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500/20"
           >
             <option value="">All Departments</option>
-            <option value="Engineering">Engineering</option>
-            <option value="Product">Product</option>
-            <option value="Human Resources">Human Resources</option>
-            <option value="Sales & Marketing">Sales & Marketing</option>
-            <option value="Design">Design</option>
-            <option value="Operations">Operations</option>
-            <option value="Finance">Finance</option>
+            <option value="Digital Marketing">Digital Marketing</option>
           </select>
         </div>
 
@@ -302,7 +296,9 @@ export default function AttendanceLogs() {
                   const displayName = (log.employee_name && !log.employee_name.startsWith('[')) 
                     ? log.employee_name 
                     : (empInfo.name || log.emp_id);
-                  const displayDept = log.department || empInfo.department || 'Operations';
+                  const displayDept = (empInfo.department && empInfo.department !== 'Operations')
+                    ? empInfo.department
+                    : (empInfo.role || (log.department && log.department !== 'Operations' ? log.department : '') || 'Digital Marketing');
                   const displayAvatar = resolvePhotoUrl(log.punch_photo || log.avatar || empInfo.avatar, displayName);
 
                   const isLate = log.status === 'late';

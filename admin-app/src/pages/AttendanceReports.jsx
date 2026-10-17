@@ -114,7 +114,7 @@ export default function AttendanceReports() {
   // Department groupings
   const deptStats = {};
   data.forEach(r => {
-    const dept = r.department || 'Operations';
+    const dept = (r.department && r.department !== 'Operations') ? r.department : (r.role || 'Digital Marketing');
     if (!deptStats[dept]) {
       deptStats[dept] = { count: 0, hours: 0, late: 0 };
     }
@@ -157,7 +157,7 @@ export default function AttendanceReports() {
       return {
         emp_id: emp.emp_id,
         name: emp.name,
-        department: emp.department || 'Operations',
+        department: (emp.department && emp.department !== 'Operations') ? emp.department : (emp.role || 'Digital Marketing'),
         role: emp.role || 'Staff',
         avatar: emp.avatar,
         baseSalary,

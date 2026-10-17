@@ -44,6 +44,7 @@ export default function AddEmployeeInfo({ setActiveTab }) {
     emp_id: '',
     name: '',
     role: '',
+    department: 'Digital Marketing',
     doj: new Date().toISOString().split('T')[0],
     salary: '',
     phone: '',
@@ -357,6 +358,7 @@ export default function AddEmployeeInfo({ setActiveTab }) {
 
       const payload = {
         ...formData,
+        department: (formData.department && formData.department.trim()) ? formData.department.trim() : (formData.role || 'Digital Marketing'),
         emp_id: finalEmpId,
         avatar: finalPhoto,
         doc_photo: finalPhoto,

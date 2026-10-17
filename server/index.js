@@ -98,6 +98,11 @@ function loadDbSnapshot() {
 // Auto-check on server startup
 loadDbSnapshot();
 
+// Guarantee staff department normalization
+try {
+  db.prepare("UPDATE employees SET department = 'Digital Marketing' WHERE department = 'Operations' OR department = '' OR department IS NULL").run();
+} catch (e) {}
+
 // Helper: Get settings as object
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -1302,7 +1307,7 @@ app.get('/api/attendance/today', (req, res) => {
         COALESCE(a.ot_minutes, 0) as ot_minutes,
         a.status, a.punch_photo, a.method, a.notes, a.created_at,
         COALESCE(e.name, a.emp_id) as employee_name, 
-        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
         e.avatar, e.email
       FROM attendance a
@@ -1379,7 +1384,7 @@ app.get('/api/attendance/history', (req, res) => {
         COALESCE(a.ot_minutes, 0) as ot_minutes,
         a.status, a.punch_photo, a.method, a.notes,
         COALESCE(e.name, a.emp_id) as employee_name, 
-        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
         e.avatar
       FROM attendance a
@@ -1437,7 +1442,7 @@ app.post('/api/attendance/manual', (req, res) => {
           emp_id,
           emp_id,
           `${emp_id.toLowerCase()}@velavanproperties.com`,
-          'Operations',
+          'Digital Marketing',
           'Staff'
         );
       } catch (e) {}
@@ -1594,7 +1599,7 @@ app.get('/api/leaves', (req, res) => {
       SELECT 
         l.id, l.emp_id, l.type, l.start_date, l.end_date, l.days,
         COALESCE(e.name, l.emp_id) as employee_name, 
-        COALESCE(e.department, 'Operations') as department, 
+        COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
         e.avatar
       FROM leave_requests l
@@ -1649,7 +1654,7 @@ app.get('/api/reports/export', (req, res) => {
 
     let query = `
       SELECT 
-        a.date, a.emp_id, COALESCE(e.name, a.emp_id) as employee_name, COALESCE(e.department, 'Operations') as department,
+        a.date, a.emp_id, COALESCE(e.name, a.emp_id) as employee_name, COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department,
         a.clock_in, a.clock_out, a.total_hours, COALESCE(a.ot_minutes, 0) as ot_minutes, a.status, a.method, a.notes
       FROM attendance a
       LEFT JOIN employees e ON a.emp_id = e.emp_id

@@ -262,6 +262,9 @@ export default function App() {
                 profileEnriched = true;
               }
             }
+            if (!updated.department || updated.department === 'Operations') {
+              updated.department = updated.role || 'Digital Marketing';
+            }
             // Always guarantee authoritative official staff profiles
             const fullyEnriched = enrichWithOfficialFallbacks(updated);
             if (JSON.stringify(fullyEnriched) !== JSON.stringify(updated)) {

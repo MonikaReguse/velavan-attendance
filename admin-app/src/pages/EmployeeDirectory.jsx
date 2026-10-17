@@ -96,6 +96,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
     phone: '',
     emergency_phone: '',
     role: '',
+    department: 'Digital Marketing',
     doj: '',
     salary: '',
     aadhaar_number: '',
@@ -294,6 +295,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
       phone: emp.phone || '',
       emergency_phone: emp.emergency_phone || '',
       role: emp.role || '',
+      department: (emp.department && emp.department !== 'Operations') ? emp.department : (emp.role || 'Digital Marketing'),
       doj: emp.doj || emp.join_date || '',
       salary: emp.salary || '',
       aadhaar_number: emp.aadhaar_number || '',
@@ -390,6 +392,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
       const payload = {
         ...(editingEmp || {}),
         ...formData,
+        department: (formData.department && formData.department.trim() && formData.department !== 'Operations') ? formData.department.trim() : (formData.role || editingEmp?.department || 'Digital Marketing'),
         avatar: formData.doc_photo || formData.avatar || editingEmp?.avatar || '',
         doc_photo: formData.doc_photo || formData.avatar || editingEmp?.doc_photo || '',
         account_holder_name: (formData.account_holder_name && formData.account_holder_name.trim()) || formData.name.trim()
@@ -1145,10 +1148,33 @@ export default function EmployeeDirectory({ setActiveTab }) {
                         type="text"
                         required
                         value={formData.role}
-                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            role: val,
+                            department: (!prev.department || prev.department === 'Operations') ? val : prev.department
+                          }));
+                        }}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-medium text-slate-800"
                       />
                     </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">
+                        Department <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.department}
+                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                        placeholder="e.g. Digital Marketing"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-medium text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-slate-700 font-semibold mb-1">
                         Phone Number <span className="text-rose-500">*</span>
@@ -1161,9 +1187,6 @@ export default function EmployeeDirectory({ setActiveTab }) {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono text-slate-800"
                       />
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-slate-700 font-semibold mb-1">
                         Date of Joining (DOJ) <span className="text-rose-500">*</span>
@@ -1176,6 +1199,8 @@ export default function EmployeeDirectory({ setActiveTab }) {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono text-slate-800"
                       />
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-slate-700 font-semibold mb-1">
                         Salary Allocated <span className="text-rose-500">*</span>
