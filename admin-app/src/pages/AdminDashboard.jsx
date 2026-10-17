@@ -8,7 +8,8 @@ import {
   Building2, 
   ScanFace,
   AlertCircle,
-  ArrowRight
+  ArrowRight,
+  RefreshCw
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
@@ -26,7 +27,7 @@ export default function AdminDashboard({ setActiveTab }) {
   const [todayAttendance, setTodayAttendance] = useState(() => {
     try {
       const allLocal = getLocalAttendance();
-      const currentDay = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const currentDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       const todayList = allLocal.filter(a => a.date === currentDay);
       if (todayList.length > 0) return todayList;
     } catch {}
@@ -57,14 +58,29 @@ export default function AdminDashboard({ setActiveTab }) {
         setEmployees(empRes);
       }
 
-      const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
-      const currentDay = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const todayOnly = merged.filter(a => a.date === currentDay);
-      setTodayAttendance(todayOnly);
+      const currentDay = new Intl.DateTimeFormat('en-CA', { 
+        timeZone: 'Asia/Kolkata', 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit' 
+      }).format(new Date());
+
+      // If server returned records, use them directly as primary truth and overlay any new local today punches
+      let todayList = [];
+      if (Array.isArray(attRes) && attRes.length > 0) {
+        const localList = getLocalAttendance().filter(a => a.date === currentDay);
+        const serverKeys = new Set(attRes.map(a => a.emp_id));
+        const unsavedLocal = localList.filter(l => !serverKeys.has(l.emp_id));
+        todayList = [...attRes, ...unsavedLocal];
+      } else {
+        const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
+        todayList = merged.filter(a => a.date === currentDay);
+      }
+      setTodayAttendance(todayList);
 
       const totalEmp = (empRes && empRes.length > 0) ? empRes.length : (employees.length || 9);
-      const presentToday = todayOnly.length;
-      const lateToday = todayOnly.filter(a => a.status === 'late' || a.is_late).length;
+      const presentToday = todayList.length;
+      const lateToday = todayList.filter(a => a.status === 'late' || a.is_late).length;
       const absentToday = Math.max(0, totalEmp - presentToday);
 
       const calculatedSummary = {
@@ -94,11 +110,30 @@ export default function AdminDashboard({ setActiveTab }) {
   useEffect(() => {
     loadDashboardData();
 
+    // 1. Periodic background polling every 10 seconds for real-time multi-device sync
+    const timer = setInterval(() => {
+      loadDashboardData();
+    }, 10000);
+
+    // 2. Instant refresh when admin tabs back into the browser window
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadDashboardData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // 3. In-tab custom event
     const handleRealtimeUpdate = () => {
       loadDashboardData();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
-    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    };
   }, []);
 
   const unenrolledCount = employees.filter(e => !e.has_face_enrolled).length;
@@ -148,7 +183,15 @@ export default function AdminDashboard({ setActiveTab }) {
             </div>
           </div>
         </div>
-        <div className="relative z-10 flex items-center space-x-3">
+        <div className="relative z-10 flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={loadDashboardData}
+            className="flex items-center space-x-1.5 px-4 py-3 bg-white/15 hover:bg-white/25 active:bg-white/30 text-white text-xs font-bold rounded-xl border border-white/25 transition-all shadow-md backdrop-blur-xs cursor-pointer"
+            title="Refresh Live Attendance Data"
+          >
+            <RefreshCw className="w-4 h-4 text-white" />
+            <span>Refresh Live</span>
+          </button>
           <button
             onClick={() => setActiveTab('facelock-kiosk')}
             className="flex items-center space-x-2 px-5 py-3 bg-white hover:bg-slate-100 active:bg-slate-200 text-[#8b0000] text-xs font-black rounded-xl shadow-lg shadow-red-950/20 transition-all transform hover:scale-[1.02]"

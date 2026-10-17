@@ -61,12 +61,29 @@ export default function ManualAttendanceUpdate() {
   useEffect(() => {
     loadData();
 
+    // 1. Auto-refresh recent logs every 10 seconds
+    const timer = setInterval(() => {
+      loadData();
+    }, 10000);
+
+    // 2. Refresh on visibility change
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     const handleRealtimeUpdate = () => {
-      const all = getLocalAttendance();
-      setRecentLogs(all.slice(0, 50));
+      loadData();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
-    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    };
   }, []);
 
   const loadData = async () => {
@@ -222,8 +239,8 @@ export default function ManualAttendanceUpdate() {
         id: editingId || undefined,
         emp_id: selectedEmpId,
         date: selectedDate,
-        clock_in: status === 'absent' || status === 'weekly_off' ? null : clockIn,
-        clock_out: status === 'absent' || status === 'weekly_off' ? null : clockOut,
+        clock_in: (status === 'absent' || status === 'weekly_off') ? '--' : (clockIn || '--'),
+        clock_out: (status === 'absent' || status === 'weekly_off') ? '--' : (clockOut || '--'),
         status: status,
         notes: notes.trim() || 'HR manual attendance entry',
         ot_minutes: customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes

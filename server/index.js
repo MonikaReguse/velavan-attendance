@@ -1467,8 +1467,10 @@ app.post('/api/attendance/manual', (req, res) => {
       finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
     }
 
-    const cIn = hasValidTimes ? clock_in : null;
-    const cOut = hasValidTimes ? clock_out : null;
+    const cleanIn = (clock_in && String(clock_in).trim() && String(clock_in).trim() !== 'null' && String(clock_in).trim() !== 'undefined') ? String(clock_in).trim() : '--';
+    const cleanOut = (clock_out && String(clock_out).trim() && String(clock_out).trim() !== 'null' && String(clock_out).trim() !== 'undefined') ? String(clock_out).trim() : '--';
+    const cIn = (status === 'absent' || status === 'weekly_off') ? '--' : cleanIn;
+    const cOut = (status === 'absent' || status === 'weekly_off') ? '--' : cleanOut;
 
     if (id) {
       db.prepare(`
@@ -1529,7 +1531,7 @@ app.put('/api/attendance/:id', (req, res) => {
     let otHours = 0;
     let finalOtMinutes = 0;
 
-    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent';
+    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
     if (hasValidTimes) {
       totalHours = calculateHours(clock_in, clock_out);
       const ot = calculateOT(
@@ -1543,8 +1545,10 @@ app.put('/api/attendance/:id', (req, res) => {
       finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
     }
 
-    const cIn = hasValidTimes ? clock_in : null;
-    const cOut = hasValidTimes ? clock_out : null;
+    const cleanIn = (clock_in && String(clock_in).trim() && String(clock_in).trim() !== 'null' && String(clock_in).trim() !== 'undefined') ? String(clock_in).trim() : '--';
+    const cleanOut = (clock_out && String(clock_out).trim() && String(clock_out).trim() !== 'null' && String(clock_out).trim() !== 'undefined') ? String(clock_out).trim() : '--';
+    const cIn = (status === 'absent' || status === 'weekly_off') ? '--' : cleanIn;
+    const cOut = (status === 'absent' || status === 'weekly_off') ? '--' : cleanOut;
 
     db.prepare(`
       UPDATE attendance

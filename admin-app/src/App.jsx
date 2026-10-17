@@ -65,6 +65,7 @@ export default function App() {
     // Auto-purge toxic deleted IDs, legacy mock attendance, and correct stale salary cache
     try {
       localStorage.removeItem('velavan_deleted_ids');
+      localStorage.removeItem('velavan_deleted_punches');
 
       // Fortified Auto-Heal: Guarantee all official staff have verified documents, avatars, face lock, and correct salaries
       const docsFixKey = 'velavan_restore_staff_docs_faces_v7';

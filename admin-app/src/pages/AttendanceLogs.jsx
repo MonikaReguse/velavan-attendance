@@ -10,7 +10,8 @@ import {
   Trash2,
   Clock,
   UserCheck,
-  FileDown
+  FileDown,
+  RefreshCw
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
@@ -54,11 +55,30 @@ export default function AttendanceLogs() {
     loadEmployees();
     fetchLogs();
 
+    // 1. Auto-refresh logs every 10 seconds for live updates
+    const timer = setInterval(() => {
+      fetchLogs();
+    }, 10000);
+
+    // 2. Instant refresh when admin tabs back into the browser
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchLogs();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // 3. In-tab custom event
     const handleRealtimeUpdate = () => {
       fetchLogs();
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
-    return () => window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
+    };
   }, []);
 
   const loadEmployees = async () => {
@@ -141,12 +161,17 @@ export default function AttendanceLogs() {
   const handleSubmitManual = async (e) => {
     e.preventDefault();
     try {
-      const res = await api.recordManualAttendance(formData);
-      const savedPunch = {
+      const payload = {
         ...formData,
+        clock_in: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_in || '--'),
+        clock_out: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_out || '--')
+      };
+      const res = await api.recordManualAttendance(payload);
+      const savedPunch = {
+        ...payload,
         method: 'manual',
-        status: formData.status || 'present',
-        notes: formData.notes || 'HR manual adjustment'
+        status: payload.status || 'present',
+        notes: payload.notes || 'HR manual adjustment'
       };
       savePunchLocally(savedPunch);
       setModalOpen(false);
@@ -179,6 +204,16 @@ export default function AttendanceLogs() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={fetchLogs}
+            disabled={loading}
+            className="flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-lg border border-slate-200 transition-colors shadow-2xs cursor-pointer"
+            title="Refresh Attendance Logs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
           <button
             type="button"
             onClick={() => exportAttendancePDF({ data: logs, filters })}

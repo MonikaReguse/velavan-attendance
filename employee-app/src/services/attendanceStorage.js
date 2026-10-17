@@ -212,43 +212,35 @@ export const savePunchLocally = (punch) => {
   window.dispatchEvent(new CustomEvent('velavan_attendance_updated', { detail: punch }));
 };
 
-// Smart 2-way merge: Combine server records with local storage, never resurrect deleted records
+// Smart 2-way merge: Combine server records with local storage, prioritizing authoritative server data
 export const mergeAttendanceWithLocal = (serverRecords = []) => {
-  const deletedKeys = getDeletedPunchKeys();
-
-  // Discard deleted records from server response
-  const validServer = (Array.isArray(serverRecords) ? serverRecords : [])
-    .filter(isValidAttendanceRecord)
-    .filter(s => !deletedKeys.has(`${s.emp_id}_${s.date}`) && !(s.id && deletedKeys.has(String(s.id))));
-
-  // Local list already excludes deleted records
+  const validServer = (Array.isArray(serverRecords) ? serverRecords : []).filter(isValidAttendanceRecord);
   const localList = getLocalAttendance();
 
   const map = new Map();
-  // First load local records
-  for (const l of localList) {
-    map.set(`${l.emp_id}_${l.date}`, l);
+
+  // 1. Authoritative server records first
+  for (const s of validServer) {
+    map.set(`${s.emp_id}_${s.date}`, s);
   }
 
-  // Merge server records
-  const serverKeys = new Set();
-  for (const s of validServer) {
-    const key = `${s.emp_id}_${s.date}`;
-    serverKeys.add(key);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, s);
+  // 2. Overlay any local punches that might not have hit the server yet (e.g. offline mode)
+  for (const l of localList) {
+    const key = `${l.emp_id}_${l.date}`;
+    if (!map.has(key)) {
+      map.set(key, l);
     } else {
-      // Keep richest fields from both
+      const serverRec = map.get(key);
+      // Augment with local if local has punch_photo or clock_out that server lacks
       map.set(key, {
-        ...existing,
-        ...s,
-        clock_out: s.clock_out || existing.clock_out || null,
-        total_hours: s.total_hours || existing.total_hours || null,
-        ot_hours: s.ot_hours || existing.ot_hours || null,
-        ot_minutes: s.ot_minutes || existing.ot_minutes || null,
-        punch_photo: s.punch_photo || existing.punch_photo || null,
-        notes: s.notes || existing.notes || null
+        ...l,
+        ...serverRec,
+        clock_out: serverRec.clock_out || l.clock_out || null,
+        total_hours: serverRec.total_hours || l.total_hours || null,
+        ot_hours: serverRec.ot_hours || l.ot_hours || null,
+        ot_minutes: serverRec.ot_minutes || l.ot_minutes || null,
+        punch_photo: serverRec.punch_photo || l.punch_photo || null,
+        notes: serverRec.notes || l.notes || null
       });
     }
   }
@@ -262,13 +254,6 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
   try {
     localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(merged));
   } catch {}
-
-  // Check if local has genuine records missing on server (excluding any deleted ones)
-  const missingOnServer = localList.filter(l => !serverKeys.has(`${l.emp_id}_${l.date}`));
-  if (missingOnServer.length > 0) {
-    console.log(`[Attendance Sync] Restoring ${missingOnServer.length} local attendance records to server...`);
-    api.restoreBackup({ attendance: missingOnServer }).catch(console.error);
-  }
 
   return merged;
 };

@@ -26,7 +26,8 @@ import {
   ExternalLink,
   ChevronDown,
   Layers,
-  ArrowUpRight
+  ArrowUpRight,
+  RefreshCw
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/api';
@@ -43,12 +44,30 @@ export default function EmployeePortal() {
   const [showFormula, setShowFormula] = useState(false);
   const [viewMode, setViewMode] = useState('cards'); // 'cards' (mobile-first) or 'table'
 
-  // Load employee's complete attendance history
+  // Load employee's complete attendance history with real-time auto-polling
   useEffect(() => {
     if (activeEmployee?.emp_id) {
       loadHistory(activeEmployee.emp_id);
+
+      // 1. Auto-refresh every 10 seconds for real-time multi-device sync
+      const timer = setInterval(() => {
+        loadHistory(activeEmployee.emp_id);
+      }, 10000);
+
+      // 2. Instant refresh when user returns to tab/app
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible') {
+          loadHistory(activeEmployee.emp_id);
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+
+      return () => {
+        clearInterval(timer);
+        document.removeEventListener('visibilitychange', handleVisibility);
+      };
     }
-  }, [activeEmployee]);
+  }, [activeEmployee?.emp_id]);
 
   const loadHistory = async (emp_id) => {
     try {
@@ -174,16 +193,22 @@ export default function EmployeePortal() {
 
       const isFutureDate = dayDate > now && !hist;
 
-      if (isSunday) {
-        status = 'Weekly Off';
-      } else if (hist) {
-        if (hist.status === 'half_day') {
+      if (hist) {
+        if (hist.status === 'absent') {
+          status = 'Absent';
+        } else if (hist.status === 'weekly_off') {
+          status = 'Weekly Off';
+        } else if (hist.status === 'half_day') {
           status = 'Half-Day';
-        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in > '09:40:00')) {
+        } else if (hist.status === 'late' || (hist.clock_in && hist.clock_in !== '--' && hist.clock_in > '09:40:00')) {
           status = 'Late Arrival';
+        } else if (hist.status === 'on_leave' || hist.status === 'leave') {
+          status = 'On Leave';
         } else {
           status = 'Present';
         }
+      } else if (isSunday) {
+        status = 'Weekly Off';
       } else {
         if (isFutureDate) {
           status = 'Upcoming';
@@ -508,6 +533,17 @@ export default function EmployeePortal() {
             title="Next Month"
           >
             <ChevronRight className="w-4 h-4" />
+          </button>
+
+          {/* Refresh Live Data */}
+          <button
+            onClick={() => activeEmployee?.emp_id && loadHistory(activeEmployee.emp_id)}
+            disabled={loading}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl border border-emerald-200 font-bold text-xs transition-colors shadow-2xs shrink-0"
+            title="Refresh Live Attendance"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-700 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </div>
