@@ -8,8 +8,21 @@ export const isValidAttendanceRecord = (record) => {
   return true;
 };
 
-// Retrieve all local attendance records across every storage key
+// Retrieve set of permanently deleted punch keys
+export const getDeletedPunchKeys = () => {
+  try {
+    const delStr = localStorage.getItem('velavan_deleted_punches');
+    if (delStr) {
+      const arr = JSON.parse(delStr);
+      if (Array.isArray(arr)) return new Set(arr.map(String));
+    }
+  } catch {}
+  return new Set();
+};
+
+// Retrieve all local attendance records across every storage key (excluding deleted ones)
 export const getLocalAttendance = () => {
+  const deletedKeys = getDeletedPunchKeys();
   const recordsMap = new Map();
 
   const addList = (list) => {
@@ -17,6 +30,10 @@ export const getLocalAttendance = () => {
     for (const item of list) {
       if (isValidAttendanceRecord(item)) {
         const key = `${item.emp_id}_${item.date}`;
+        // If this record was explicitly deleted by user, skip it!
+        if (deletedKeys.has(key) || (item.id && deletedKeys.has(String(item.id)))) {
+          continue;
+        }
         const existing = recordsMap.get(key);
         if (!existing) {
           recordsMap.set(key, item);
@@ -57,10 +74,83 @@ export const getLocalAttendance = () => {
   return Array.from(recordsMap.values());
 };
 
+// Remove a deleted attendance punch locally across ALL storage keys and mark deleted
+export const removePunchLocally = (id, emp_id, date) => {
+  const matchRecord = (item) => {
+    if (!item) return false;
+    if (id && String(item.id) === String(id)) return true;
+    if (emp_id && date && item.emp_id === emp_id && item.date === date) return true;
+    return false;
+  };
+
+  const key = emp_id && date ? `${emp_id}_${date}` : null;
+
+  // 1. Mark as permanently deleted so sync never resurrects it
+  try {
+    const deletedKeys = getDeletedPunchKeys();
+    if (key) deletedKeys.add(key);
+    if (id) deletedKeys.add(String(id));
+    localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+  } catch {}
+
+  // 2. Remove from master database backup
+  try {
+    const bStr = localStorage.getItem('velavan_master_database_backup');
+    if (bStr) {
+      const b = JSON.parse(bStr);
+      if (Array.isArray(b?.attendance)) {
+        b.attendance = b.attendance.filter(a => !matchRecord(a));
+        localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+      }
+    }
+  } catch {}
+
+  // 3. Remove from attendance logs cache
+  try {
+    const lStr = localStorage.getItem('velavan_attendance_logs_cache');
+    if (lStr) {
+      const l = JSON.parse(lStr).filter(a => !matchRecord(a));
+      localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
+    }
+  } catch {}
+
+  // 4. Remove from today attendance cache
+  try {
+    const tStr = localStorage.getItem('velavan_today_attendance');
+    if (tStr) {
+      const t = JSON.parse(tStr).filter(a => !matchRecord(a));
+      localStorage.setItem('velavan_today_attendance', JSON.stringify(t));
+    }
+  } catch {}
+
+  // 5. Remove from permanent realtime punches cache
+  try {
+    const rStr = localStorage.getItem('velavan_realtime_punches');
+    if (rStr) {
+      const r = JSON.parse(rStr).filter(a => !matchRecord(a));
+      localStorage.setItem('velavan_realtime_punches', JSON.stringify(r));
+    }
+  } catch {}
+
+  // 6. Broadcast event so all views update in real-time
+  window.dispatchEvent(new CustomEvent('velavan_attendance_deleted', { detail: { id, emp_id, date } }));
+  window.dispatchEvent(new CustomEvent('velavan_attendance_updated'));
+};
+
 // Save a real-time punch across ALL local storage layers and broadcast
 export const savePunchLocally = (punch) => {
   if (!isValidAttendanceRecord(punch)) return;
   const key = `${punch.emp_id}_${punch.date}`;
+
+  // If this punch was previously marked deleted, un-mark it
+  try {
+    const deletedKeys = getDeletedPunchKeys();
+    if (deletedKeys.has(key) || (punch.id && deletedKeys.has(String(punch.id)))) {
+      deletedKeys.delete(key);
+      if (punch.id) deletedKeys.delete(String(punch.id));
+      localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+    }
+  } catch {}
 
   // 1. Update master backup
   try {
@@ -122,9 +212,16 @@ export const savePunchLocally = (punch) => {
   window.dispatchEvent(new CustomEvent('velavan_attendance_updated', { detail: punch }));
 };
 
-// Smart 2-way merge: Combine server records with local storage, never drop records
+// Smart 2-way merge: Combine server records with local storage, never resurrect deleted records
 export const mergeAttendanceWithLocal = (serverRecords = []) => {
-  const validServer = Array.isArray(serverRecords) ? serverRecords.filter(isValidAttendanceRecord) : [];
+  const deletedKeys = getDeletedPunchKeys();
+
+  // Discard deleted records from server response
+  const validServer = (Array.isArray(serverRecords) ? serverRecords : [])
+    .filter(isValidAttendanceRecord)
+    .filter(s => !deletedKeys.has(`${s.emp_id}_${s.date}`) && !(s.id && deletedKeys.has(String(s.id))));
+
+  // Local list already excludes deleted records
   const localList = getLocalAttendance();
 
   const map = new Map();
@@ -166,7 +263,7 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(merged));
   } catch {}
 
-  // Check if local has any records that the server is missing
+  // Check if local has genuine records missing on server (excluding any deleted ones)
   const missingOnServer = localList.filter(l => !serverKeys.has(`${l.emp_id}_${l.date}`));
   if (missingOnServer.length > 0) {
     console.log(`[Attendance Sync] Restoring ${missingOnServer.length} local attendance records to server...`);

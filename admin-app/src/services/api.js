@@ -117,8 +117,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }).then(handleResponse),
-  deleteAttendance: (id) =>
-    fetch(`${API_BASE}/attendance/${id}`, { method: 'DELETE' }).then(handleResponse),
+  deleteAttendance: (id, emp_id, date) => {
+    let query = '';
+    if (emp_id && date) {
+      query = `?emp_id=${encodeURIComponent(emp_id)}&date=${encodeURIComponent(date)}`;
+    }
+    return fetch(`${API_BASE}/attendance/${id || 0}${query}`, { method: 'DELETE' }).then(handleResponse);
+  },
 
   // Leaves
   getLeaves: (emp_id) => {

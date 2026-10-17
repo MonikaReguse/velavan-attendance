@@ -14,7 +14,7 @@ import {
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
-import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
 
 export default function AttendanceLogs() {
   const [logs, setLogs] = useState(() => getLocalAttendance());
@@ -157,14 +157,9 @@ export default function AttendanceLogs() {
   const handleDelete = async (id, emp_id, date) => {
     if (!confirm('Are you sure you want to delete this attendance record?')) return;
     try {
-      if (id) await api.deleteAttendance(id);
-      try {
-        const lStr = localStorage.getItem('velavan_attendance_logs_cache');
-        if (lStr) {
-          const l = JSON.parse(lStr).filter(x => !(x.id === id || (x.emp_id === emp_id && x.date === date)));
-          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
-        }
-      } catch {}
+      removePunchLocally(id, emp_id, date);
+      setLogs(prev => prev.filter(l => !( (id && String(l.id) === String(id)) || (emp_id && date && l.emp_id === emp_id && l.date === date) )));
+      await api.deleteAttendance(id, emp_id, date).catch(console.error);
       fetchLogs();
     } catch (err) {
       alert('Error: ' + err.message);

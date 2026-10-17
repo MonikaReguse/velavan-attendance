@@ -13,7 +13,7 @@ import FaceEnrollment from './pages/FaceEnrollment';
 import AdminUnlockModal from './components/AdminUnlockModal';
 import { api } from './services/api';
 import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from './services/officialStaffProfiles';
-import { getLocalAttendance, mergeAttendanceWithLocal } from './services/attendanceStorage';
+import { getLocalAttendance, mergeAttendanceWithLocal, getDeletedPunchKeys } from './services/attendanceStorage';
 
 export default function App() {
   // Default to Kiosk Mode (Employee FaceLock Only)
@@ -67,7 +67,7 @@ export default function App() {
       localStorage.removeItem('velavan_deleted_ids');
 
       // Fortified Auto-Heal: Guarantee all official staff have verified documents, avatars, face lock, and correct salaries
-      const docsFixKey = 'velavan_restore_staff_docs_faces_v4';
+      const docsFixKey = 'velavan_restore_staff_docs_faces_v6';
       if (!localStorage.getItem(docsFixKey)) {
         // 1. Fix in master backup
         const bStr = localStorage.getItem('velavan_master_database_backup');
@@ -92,7 +92,7 @@ export default function App() {
         if (cStr) {
           const c = JSON.parse(cStr);
           for (const [k, fb] of Object.entries(OFFICIAL_STAFF_FALLBACKS)) {
-            c[k] = { ...(c[k] || {}), ...fb };
+            c[k] = enrichWithOfficialFallbacks({ ...(c[k] || {}), ...fb, emp_id: k });
           }
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(c));
         }
@@ -120,10 +120,12 @@ export default function App() {
     // Triple-Layer Disaster Recovery: Smart Two-Way Merge between browser and server
     const runDisasterRecovery = async () => {
       try {
+        const deletedKeys = getDeletedPunchKeys();
         const backupData = await api.getBackup().catch(() => null);
         const serverEmps = Array.isArray(backupData?.employees) ? backupData.employees : [];
         const serverAtts = (Array.isArray(backupData?.attendance) ? backupData.attendance : [])
-          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14')
+          .filter(a => !deletedKeys.has(`${a.emp_id}_${a.date}`) && !(a.id && deletedKeys.has(String(a.id))));
 
         const localBackupStr = localStorage.getItem('velavan_master_database_backup');
         let localBackup = null;
@@ -134,7 +136,8 @@ export default function App() {
         }
         const localEmps = Array.isArray(localBackup?.employees) ? localBackup.employees : [];
         const localAtts = (Array.isArray(localBackup?.attendance) ? localBackup.attendance : [])
-          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14')
+          .filter(a => !deletedKeys.has(`${a.emp_id}_${a.date}`) && !(a.id && deletedKeys.has(String(a.id))));
 
         // Also check details cache and directory list cache for richest employee records
         let localCacheList = [];
@@ -262,7 +265,12 @@ export default function App() {
           // Check if any attendance records punched locally are missing from server for valid staff:
           const finalEmpKeys = new Set(mergedServerEmps.map(e => e.emp_id));
           const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
-          const missingAtts = localAtts.filter(a => finalEmpKeys.has(a.emp_id) && !serverAttKeys.has(`${a.emp_id}_${a.date}`));
+          const missingAtts = localAtts.filter(a => 
+            finalEmpKeys.has(a.emp_id) && 
+            !serverAttKeys.has(`${a.emp_id}_${a.date}`) &&
+            !deletedKeys.has(`${a.emp_id}_${a.date}`) &&
+            !(a.id && deletedKeys.has(String(a.id)))
+          );
 
           // Always merge server and local attendance records safely
           const finalMergedAtts = mergeAttendanceWithLocal([...serverAtts, ...missingAtts]);

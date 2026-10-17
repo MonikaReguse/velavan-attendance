@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatTime } from '../services/timeUtils';
-import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally } from '../services/attendanceStorage';
+import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
 
 export default function ManualAttendanceUpdate() {
   const [employees, setEmployees] = useState(() => {
@@ -272,14 +272,9 @@ export default function ManualAttendanceUpdate() {
   const handleDelete = async (id, empName, recordDate, emp_id) => {
     if (!confirm(`Are you sure you want to delete attendance record for ${empName} on ${recordDate}?`)) return;
     try {
-      if (id) await api.deleteAttendance(id);
-      try {
-        const lStr = localStorage.getItem('velavan_attendance_logs_cache');
-        if (lStr) {
-          const l = JSON.parse(lStr).filter(x => !(x.id === id || (x.emp_id === emp_id && x.date === recordDate)));
-          localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
-        }
-      } catch {}
+      removePunchLocally(id, emp_id, recordDate);
+      setRecentLogs(prev => prev.filter(l => !( (id && String(l.id) === String(id)) || (emp_id && recordDate && l.emp_id === emp_id && l.date === recordDate) )));
+      await api.deleteAttendance(id, emp_id, recordDate).catch(console.error);
       setFeedback({ type: 'success', message: 'Attendance record deleted successfully' });
       const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
       const merged = mergeAttendanceWithLocal(updatedLogs || []);

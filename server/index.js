@@ -1555,9 +1555,32 @@ app.put('/api/attendance/:id', (req, res) => {
 
 app.delete('/api/attendance/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM attendance WHERE id = ?').run(req.params.id);
+    const { id } = req.params;
+    const { emp_id, date } = req.query;
+    if (id && id !== '0' && id !== 'undefined' && id !== 'null') {
+      db.prepare('DELETE FROM attendance WHERE id = ?').run(id);
+    }
+    if (emp_id && date) {
+      db.prepare('DELETE FROM attendance WHERE emp_id = ? AND date = ?').run(emp_id, date);
+    }
     saveDbSnapshot();
-    res.json({ success: true });
+    res.json({ success: true, message: 'Attendance record deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/attendance', (req, res) => {
+  try {
+    const { id, emp_id, date } = req.query;
+    if (id && id !== '0') {
+      db.prepare('DELETE FROM attendance WHERE id = ?').run(id);
+    }
+    if (emp_id && date) {
+      db.prepare('DELETE FROM attendance WHERE emp_id = ? AND date = ?').run(emp_id, date);
+    }
+    saveDbSnapshot();
+    res.json({ success: true, message: 'Attendance record deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
