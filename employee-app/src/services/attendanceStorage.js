@@ -1,10 +1,10 @@
 import { api } from './api';
 
-// Safe date check for current production records
+// Safe check for valid production attendance records
 export const isValidAttendanceRecord = (record) => {
   if (!record || !record.emp_id || !record.date) return false;
-  // Discard legacy corrupt mock test records
-  if (record.date < '2026-10-16' || record.clock_in === '17:36:14') return false;
+  // Discard only the legacy mock test punch with corrupt timestamp
+  if (record.clock_in === '17:36:14' && record.date === '2026-10-15') return false;
   return true;
 };
 

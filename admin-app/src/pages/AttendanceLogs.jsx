@@ -184,6 +184,7 @@ export default function AttendanceLogs() {
       const res = await api.recordManualAttendance(payload);
       const savedPunch = {
         ...payload,
+        id: res.id || formData.id || undefined,
         method: 'manual',
         status: payload.status || 'present',
         notes: payload.notes || 'HR manual adjustment'

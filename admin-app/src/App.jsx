@@ -76,8 +76,8 @@ export default function App() {
         if (bStr) {
           const b = JSON.parse(bStr);
           if (Array.isArray(b?.attendance)) {
-            // Remove mock records from dates < 2026-10-16 and test punches
-            b.attendance = b.attendance.filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14');
+            // Remove only corrupt legacy mock punch
+            b.attendance = b.attendance.filter(a => a && !(a.clock_in === '17:36:14' && a.date === '2026-10-15'));
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
           }
         }
@@ -92,7 +92,7 @@ export default function App() {
         const backupData = await api.getBackup().catch(() => null);
         const serverEmps = Array.isArray(backupData?.employees) ? backupData.employees : [];
         const serverAtts = (Array.isArray(backupData?.attendance) ? backupData.attendance : [])
-          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14')
+          .filter(a => a && !(a.clock_in === '17:36:14' && a.date === '2026-10-15'))
           .filter(a => !deletedKeys.has(`${a.emp_id}_${a.date}`) && !(a.id && deletedKeys.has(String(a.id))));
 
         const localBackupStr = localStorage.getItem('velavan_master_database_backup');
@@ -104,7 +104,7 @@ export default function App() {
         }
         const localEmps = Array.isArray(localBackup?.employees) ? localBackup.employees : [];
         const localAtts = (Array.isArray(localBackup?.attendance) ? localBackup.attendance : [])
-          .filter(a => a && a.date >= '2026-10-16' && a.clock_in !== '17:36:14')
+          .filter(a => a && !(a.clock_in === '17:36:14' && a.date === '2026-10-15'))
           .filter(a => !deletedKeys.has(`${a.emp_id}_${a.date}`) && !(a.id && deletedKeys.has(String(a.id))));
 
         // 1. If server is completely empty (e.g. cold restart on ephemeral server), restore from browser backup

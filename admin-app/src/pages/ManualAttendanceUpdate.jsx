@@ -116,6 +116,31 @@ export default function ManualAttendanceUpdate() {
     return employees.find(e => e.emp_id === selectedEmpId) || null;
   }, [employees, selectedEmpId]);
 
+  // When selected employee or date changes, auto-detect existing record so manual changes are NEVER cleared!
+  useEffect(() => {
+    if (!selectedEmpId || !selectedDate) return;
+
+    const allAttendance = getLocalAttendance();
+    const existing = allAttendance.find(a => a.emp_id === selectedEmpId && a.date === selectedDate)
+      || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === selectedDate);
+
+    if (existing) {
+      setEditingId(existing.id || null);
+      setClockIn((existing.clock_in && existing.clock_in !== '--') ? existing.clock_in : '');
+      setClockOut((existing.clock_out && existing.clock_out !== '--') ? existing.clock_out : '');
+      setStatus(existing.status || 'present');
+      setCustomOtMinutes((existing.ot_minutes !== undefined && existing.ot_minutes !== null && Number(existing.ot_minutes) > 0) ? String(existing.ot_minutes) : '');
+      setNotes(existing.notes || 'HR manual adjustment');
+    } else {
+      setEditingId(null);
+      setClockIn('09:30:00');
+      setClockOut('18:00:00');
+      setStatus('present');
+      setCustomOtMinutes('');
+      setNotes('HR manual attendance entry');
+    }
+  }, [selectedEmpId, selectedDate, recentLogs]);
+
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
     if (status === 'absent' || !clockIn || !clockOut || clockIn === '--' || clockOut === '--') {
@@ -253,6 +278,7 @@ export default function ManualAttendanceUpdate() {
       if (res.success) {
         const savedPunch = {
           ...payload,
+          id: res.id || editingId || undefined,
           employee_name: currentEmployee?.name || selectedEmpId,
           department: currentEmployee?.department,
           designation: currentEmployee?.designation,
@@ -261,6 +287,10 @@ export default function ManualAttendanceUpdate() {
         };
         savePunchLocally(savedPunch);
 
+        if (res.id) {
+          setEditingId(res.id);
+        }
+
         setFeedback({
           type: 'success',
           message: editingId
@@ -268,7 +298,6 @@ export default function ManualAttendanceUpdate() {
             : `Attendance successfully recorded for ${currentEmployee?.name || selectedEmpId} on ${selectedDate}!`
         });
 
-        handleResetForm();
         const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
         const merged = mergeAttendanceWithLocal(updatedLogs || []);
         setRecentLogs(merged.slice(0, 50));
@@ -427,9 +456,16 @@ export default function ManualAttendanceUpdate() {
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-semibold focus:outline-none focus:border-[#8b0000] focus:ring-2 focus:ring-red-100"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  Select current date or any past date to adjust.
-                </span>
+                {editingId ? (
+                  <span className="text-[10px] text-amber-800 font-bold mt-1 flex items-center space-x-1">
+                    <CheckCircle2 className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span>Existing record #{editingId} loaded for this date. Edit and click Update.</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Select current date or any past date to adjust.
+                  </span>
+                )}
               </div>
             </div>
 

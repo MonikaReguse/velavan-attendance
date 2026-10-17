@@ -1503,26 +1503,31 @@ app.post('/api/attendance/manual', (req, res) => {
     const cIn = (status === 'absent' || status === 'weekly_off') ? '--' : cleanIn;
     const cOut = (status === 'absent' || status === 'weekly_off') ? '--' : cleanOut;
 
-    if (id) {
+    // Resolve target record ID safely without hijacking or clearing other dates
+    let targetRecordId = id;
+    if (targetRecordId) {
+      const rec = db.prepare('SELECT id, emp_id, date FROM attendance WHERE id = ?').get(targetRecordId);
+      if (rec && (rec.emp_id !== emp_id || rec.date !== date)) {
+        // Date or employee changed: do NOT overwrite the old date's record!
+        // Instead, check if target (emp_id, date) already exists or insert new
+        const existingOnNewDate = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
+        targetRecordId = existingOnNewDate ? existingOnNewDate.id : null;
+      }
+    } else {
+      const existing = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
+      if (existing) {
+        targetRecordId = existing.id;
+      }
+    }
+
+    if (targetRecordId) {
       db.prepare(`
         UPDATE attendance
         SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
         WHERE id = ?
-      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', id);
+      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', targetRecordId);
       saveDbSnapshot();
-      return res.json({ success: true, updated: true, id });
-    }
-
-    const existing = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
-
-    if (existing) {
-      db.prepare(`
-        UPDATE attendance
-        SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
-        WHERE id = ?
-      `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', existing.id);
-      saveDbSnapshot();
-      res.json({ success: true, updated: true, id: existing.id });
+      return res.json({ success: true, updated: true, id: targetRecordId });
     } else {
       const result = db.prepare(`
         INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method)
