@@ -76,7 +76,11 @@ export default function App() {
           if (Array.isArray(b?.employees)) {
             b.employees = b.employees.map(e => {
               if (e && (e.emp_id === 'VPDM04' || e.emp_id === 'VPDM05')) {
-                return enrichWithOfficialFallbacks({ ...e, avatar: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, doc_photo: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo });
+                return enrichWithOfficialFallbacks({ 
+                  ...e, 
+                  avatar: e.avatar || OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, 
+                  doc_photo: e.doc_photo || OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo 
+                });
               }
               return enrichWithOfficialFallbacks(e);
             });
@@ -90,7 +94,11 @@ export default function App() {
           if (Array.isArray(d)) {
             const updatedD = d.map(e => {
               if (e && (e.emp_id === 'VPDM04' || e.emp_id === 'VPDM05')) {
-                return enrichWithOfficialFallbacks({ ...e, avatar: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, doc_photo: OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo });
+                return enrichWithOfficialFallbacks({ 
+                  ...e, 
+                  avatar: e.avatar || OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.avatar, 
+                  doc_photo: e.doc_photo || OFFICIAL_STAFF_FALLBACKS[e.emp_id]?.doc_photo 
+                });
               }
               return enrichWithOfficialFallbacks(e);
             });
@@ -104,8 +112,8 @@ export default function App() {
           for (const [k, fb] of Object.entries(OFFICIAL_STAFF_FALLBACKS)) {
             const cur = c[k] || {};
             if (k === 'VPDM04' || k === 'VPDM05') {
-              cur.avatar = fb.avatar;
-              cur.doc_photo = fb.doc_photo;
+              if (!cur.avatar) cur.avatar = fb.avatar;
+              if (!cur.doc_photo) cur.doc_photo = fb.doc_photo;
             }
             c[k] = enrichWithOfficialFallbacks({ ...fb, ...cur, emp_id: k });
           }
@@ -290,8 +298,8 @@ export default function App() {
           // Always merge server and local attendance records safely
           const finalMergedAtts = mergeAttendanceWithLocal([...serverAtts, ...missingAtts]);
 
-          if (profileEnriched || missingAtts.length > 0) {
-            console.log(`[Disaster Recovery] Syncing enriched profile details and ${missingAtts.length} attendance records to server...`);
+          if (profileEnriched) {
+            console.log(`[Disaster Recovery] Syncing enriched profile details to server...`);
             const payload = {
               employees: mergedServerEmps,
               attendance: finalMergedAtts,
@@ -300,15 +308,42 @@ export default function App() {
             await api.restoreBackup(payload).catch(console.error);
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(payload));
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
+            try {
+              const existingCache = JSON.parse(localStorage.getItem('velavan_employee_details_cache') || '{}');
+              for (const emp of mergedServerEmps) {
+                if (emp && emp.emp_id) {
+                  existingCache[emp.emp_id] = { ...(existingCache[emp.emp_id] || {}), ...emp };
+                }
+              }
+              localStorage.setItem('velavan_employee_details_cache', JSON.stringify(existingCache));
+            } catch (e) {}
             window.dispatchEvent(new CustomEvent('velavan_data_restored'));
-          } else {
-            // Update local backup to match server while preserving all local attendance
+          } else if (missingAtts.length > 0) {
+            console.log(`[Disaster Recovery] Syncing ${missingAtts.length} offline attendance records to server...`);
+            await api.restoreBackup({ attendance: missingAtts }).catch(console.error);
             localStorage.setItem('velavan_master_database_backup', JSON.stringify({
               ...backupData,
               employees: mergedServerEmps,
               attendance: finalMergedAtts
             }));
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
+          } else {
+            // Server is authoritative source of truth for employees; sync local storage to match
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify({
+              ...backupData,
+              employees: mergedServerEmps,
+              attendance: finalMergedAtts
+            }));
+            localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedServerEmps));
+            try {
+              const existingCache = JSON.parse(localStorage.getItem('velavan_employee_details_cache') || '{}');
+              for (const emp of mergedServerEmps) {
+                if (emp && emp.emp_id) {
+                  existingCache[emp.emp_id] = { ...(existingCache[emp.emp_id] || {}), ...emp };
+                }
+              }
+              localStorage.setItem('velavan_employee_details_cache', JSON.stringify(existingCache));
+            } catch (e) {}
           }
         }
       } catch (err) {

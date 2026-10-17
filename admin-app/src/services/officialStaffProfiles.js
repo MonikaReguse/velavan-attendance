@@ -77,7 +77,7 @@ export function enrichWithOfficialFallbacks(emp) {
   if (!fb) return emp;
 
   const enriched = { ...emp };
-  // Only fill missing properties so user edits are preserved
+  // Strictly fill ONLY missing/empty properties so any user edits (salary, bank details, phone, name, etc.) are 100% preserved
   for (const [k, v] of Object.entries(fb)) {
     if (k === 'id') continue;
     if (enriched[k] === undefined || enriched[k] === null || enriched[k] === '') {
@@ -85,32 +85,8 @@ export function enrichWithOfficialFallbacks(emp) {
     }
   }
 
-  // Explicitly guarantee authentic bank details, salary, and documents for official staff
-  if (key === 'VPDM04' || cleanName.includes('jegajothi')) {
-    enriched.bank_name = 'Axis Bank';
-    if (!enriched.account_number) enriched.account_number = '••••1882';
-    if (!enriched.salary || enriched.salary === '0') enriched.salary = '20000';
-    if (!enriched.doj) enriched.doj = '2026-01-02';
-  } else if (key === 'VPDM05' || cleanName.includes('jegatheeswari')) {
-    enriched.bank_name = 'SBI';
-    if (!enriched.account_number) enriched.account_number = '••••2303';
-    if (!enriched.salary || enriched.salary === '0') enriched.salary = '15000';
-    if (!enriched.doj) enriched.doj = '2025-10-13';
-  } else if (key === 'VPDM06' || cleanName.includes('faritha')) {
-    enriched.bank_name = 'Canara Bank';
-    if (!enriched.account_number) enriched.account_number = '••••5396';
-    enriched.salary = '15000';
-  }
-
-  // Guarantee required docs are present
-  if (!enriched.doc_aadhaar && fb.doc_aadhaar) enriched.doc_aadhaar = fb.doc_aadhaar;
-  if (!enriched.doc_pan && fb.doc_pan) enriched.doc_pan = fb.doc_pan;
-  if (!enriched.doc_bank_passbook && fb.doc_bank_passbook) enriched.doc_bank_passbook = fb.doc_bank_passbook;
-  if (!enriched.doc_photo && fb.doc_photo) enriched.doc_photo = fb.doc_photo;
-  if (!enriched.avatar && fb.avatar) enriched.avatar = fb.avatar;
-
-  // Face enrollment flag preservation
-  if (fb.has_face_enrolled || enriched.face_descriptor || fb.face_descriptor) {
+  // Face enrollment flag preservation if biometrics exist
+  if (!enriched.has_face_enrolled && (fb.has_face_enrolled || enriched.face_descriptor || fb.face_descriptor)) {
     enriched.has_face_enrolled = 1;
   }
 

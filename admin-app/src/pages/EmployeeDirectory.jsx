@@ -248,6 +248,13 @@ export default function EmployeeDirectory({ setActiveTab }) {
       setEmployees(uniqueEmployees);
       try {
         localStorage.setItem('velavan_employee_directory_list', JSON.stringify(uniqueEmployees));
+        const currentCache = JSON.parse(localStorage.getItem('velavan_employee_details_cache') || '{}');
+        for (const ue of uniqueEmployees) {
+          if (ue && ue.emp_id) {
+            currentCache[ue.emp_id] = { ...(currentCache[ue.emp_id] || {}), ...ue };
+          }
+        }
+        localStorage.setItem('velavan_employee_details_cache', JSON.stringify(currentCache));
       } catch (e) {}
     } catch (err) {
       console.error('Error loading employees:', err);
