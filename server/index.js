@@ -120,6 +120,15 @@ try {
   db.prepare("UPDATE employees SET department = 'Digital Marketing' WHERE department = 'Operations' OR department = '' OR department IS NULL").run();
 } catch (e) {}
 
+// Sync attendance punch_photo with verified employee avatar so photos are never mismatched
+try {
+  const emps = db.prepare('SELECT emp_id, avatar FROM employees WHERE avatar IS NOT NULL AND avatar != ""').all();
+  const updateAttPhoto = db.prepare('UPDATE attendance SET punch_photo = ? WHERE emp_id = ?');
+  for (const emp of emps) {
+    updateAttPhoto.run(emp.avatar, emp.emp_id);
+  }
+} catch (e) {}
+
 // Helper: Get settings as object
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -945,6 +954,11 @@ app.put('/api/employees/:id', (req, res) => {
     }
 
     const updatedEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(internalId);
+    if (updatedEmp && updatedEmp.avatar) {
+      try {
+        db.prepare('UPDATE attendance SET punch_photo = ? WHERE emp_id = ?').run(updatedEmp.avatar, updatedEmp.emp_id);
+      } catch (photoErr) {}
+    }
     saveDbSnapshot();
     res.json({ success: true, employee: updatedEmp });
   } catch (err) {

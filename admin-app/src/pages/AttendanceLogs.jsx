@@ -348,7 +348,7 @@ export default function AttendanceLogs() {
                     ? log.employee_name 
                     : (empInfo.name || log.emp_id);
                   const displayDept = empInfo.department || log.department || 'Digital Marketing';
-                  const displayAvatar = resolvePhotoUrl(log.punch_photo || log.avatar || empInfo.avatar, displayName);
+                  const displayAvatar = resolvePhotoUrl(empInfo.avatar || log.avatar || log.punch_photo, displayName);
 
                   const isLate = isLateArrival(log.clock_in, log.status);
                   const lateMins = getLateMinutes(log.clock_in);

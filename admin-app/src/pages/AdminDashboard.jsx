@@ -318,7 +318,7 @@ export default function AdminDashboard({ setActiveTab }) {
                   : (empInfo.name || rec.emp_id);
                 const displayDept = empInfo.department || rec.department || 'Digital Marketing';
                 const displayRole = empInfo.role || rec.role || 'Staff';
-                const displayAvatar = resolvePhotoUrl(rec.punch_photo || rec.avatar || empInfo.avatar, displayName);
+                const displayAvatar = resolvePhotoUrl(empInfo.avatar || rec.avatar || rec.punch_photo, displayName);
 
                 const isLate = rec.status === 'late';
                 const isHalfDay = rec.status === 'half_day';
