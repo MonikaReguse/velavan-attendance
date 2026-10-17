@@ -42,6 +42,7 @@ import {
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { downloadFile } from '../services/downloadUtils';
+import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from '../services/officialStaffProfiles';
 
 const REQUIRED_DOCS = [
   { key: 'doc_aadhaar', label: 'Aadhaar Card', desc: 'Govt UIDAI identity card copy' },
@@ -59,23 +60,19 @@ const ACADEMIC_DOCS = [
 
 export default function EmployeeDirectory({ setActiveTab }) {
   const [employees, setEmployees] = useState(() => {
-    const normalizeSalary = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list.map(e => (e.emp_id === 'VPDM06' || (e.name && e.name.toLowerCase().includes('faritha'))) ? { ...e, salary: '15000' } : e);
-    };
     try {
       const backupStr = localStorage.getItem('velavan_master_database_backup');
       if (backupStr) {
         const parsed = JSON.parse(backupStr);
         if (Array.isArray(parsed?.employees) && parsed.employees.length > 0) {
-          return normalizeSalary(parsed.employees);
+          return parsed.employees.map(enrichWithOfficialFallbacks);
         }
       }
       const dirStr = localStorage.getItem('velavan_employee_directory_list');
       if (dirStr) {
         const parsed = JSON.parse(dirStr);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return normalizeSalary(parsed);
+          return parsed.map(enrichWithOfficialFallbacks);
         }
       }
     } catch (e) {}
@@ -245,7 +242,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
         if (nameKey && seenNames.has(nameKey)) continue;
         if (idKey) seenIds.add(idKey);
         if (nameKey) seenNames.add(nameKey);
-        uniqueEmployees.push(emp);
+        uniqueEmployees.push(enrichWithOfficialFallbacks(emp));
       }
 
       setEmployees(uniqueEmployees);

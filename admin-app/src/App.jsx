@@ -12,6 +12,7 @@ import ManualAttendanceUpdate from './pages/ManualAttendanceUpdate';
 import FaceEnrollment from './pages/FaceEnrollment';
 import AdminUnlockModal from './components/AdminUnlockModal';
 import { api } from './services/api';
+import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from './services/officialStaffProfiles';
 
 export default function App() {
   // Default to Kiosk Mode (Employee FaceLock Only)
@@ -63,14 +64,16 @@ export default function App() {
     // Auto-purge toxic deleted IDs, legacy mock attendance, and correct stale salary cache
     try {
       localStorage.removeItem('velavan_deleted_ids');
-      const salaryFixKey = 'velavan_faritha_salary_15k_v1';
-      if (!localStorage.getItem(salaryFixKey)) {
+
+      // Fortified Auto-Heal: Guarantee all official staff have verified documents, avatars, face lock, and correct salaries
+      const docsFixKey = 'velavan_restore_staff_docs_faces_v4';
+      if (!localStorage.getItem(docsFixKey)) {
         // 1. Fix in master backup
         const bStr = localStorage.getItem('velavan_master_database_backup');
         if (bStr) {
           const b = JSON.parse(bStr);
           if (Array.isArray(b?.employees)) {
-            b.employees = b.employees.map(e => (e.emp_id === 'VPDM06' || (e.name && e.name.toLowerCase().includes('faritha'))) ? { ...e, salary: '15000' } : e);
+            b.employees = b.employees.map(enrichWithOfficialFallbacks);
             localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
           }
         }
@@ -79,7 +82,7 @@ export default function App() {
         if (dStr) {
           const d = JSON.parse(dStr);
           if (Array.isArray(d)) {
-            const updatedD = d.map(e => (e.emp_id === 'VPDM06' || (e.name && e.name.toLowerCase().includes('faritha'))) ? { ...e, salary: '15000' } : e);
+            const updatedD = d.map(enrichWithOfficialFallbacks);
             localStorage.setItem('velavan_employee_directory_list', JSON.stringify(updatedD));
           }
         }
@@ -87,14 +90,12 @@ export default function App() {
         const cStr = localStorage.getItem('velavan_employee_details_cache');
         if (cStr) {
           const c = JSON.parse(cStr);
-          for (const key of Object.keys(c)) {
-            if (key === 'VPDM06' || (c[key]?.name && c[key].name.toLowerCase().includes('faritha'))) {
-              c[key] = { ...c[key], salary: '15000' };
-            }
+          for (const [k, fb] of Object.entries(OFFICIAL_STAFF_FALLBACKS)) {
+            c[k] = { ...(c[k] || {}), ...fb };
           }
           localStorage.setItem('velavan_employee_details_cache', JSON.stringify(c));
         }
-        localStorage.setItem(salaryFixKey, 'true');
+        localStorage.setItem(docsFixKey, 'true');
       }
 
       const purgedKey = 'velavan_mock_attendance_purged_v5';
@@ -196,18 +197,50 @@ export default function App() {
           const mergedServerEmps = serverEmps.map(sEmp => {
             const cleanName = (sEmp.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
             const lEmp = localEmpMap.get(sEmp.emp_id) || localEmpNameMap.get(cleanName);
-            if (!lEmp) return sEmp;
             let updated = { ...sEmp };
-            for (const [prop, propVal] of Object.entries(lEmp)) {
-              if (prop === 'id') continue;
-              if (propVal !== undefined && propVal !== null && propVal !== '') {
-                if (updated[prop] === undefined || updated[prop] === null || updated[prop] === '') {
-                  updated[prop] = propVal;
-                  profileEnriched = true;
+            if (lEmp) {
+              for (const [prop, propVal] of Object.entries(lEmp)) {
+                if (prop === 'id') continue;
+                if (propVal !== undefined && propVal !== null && propVal !== '') {
+                  if (updated[prop] === undefined || updated[prop] === null || updated[prop] === '') {
+                    updated[prop] = propVal;
+                    profileEnriched = true;
+                  }
                 }
               }
+              // Explicitly preserve FaceLock enrollment
+              if (!updated.has_face_enrolled && (lEmp.has_face_enrolled || lEmp.face_descriptor || lEmp.face_enrolled_at)) {
+                updated.has_face_enrolled = 1;
+                profileEnriched = true;
+              }
+              // Explicitly preserve Avatar & Documents
+              if (!updated.avatar && (lEmp.avatar || lEmp.doc_photo)) {
+                updated.avatar = lEmp.avatar || lEmp.doc_photo;
+                profileEnriched = true;
+              }
+              if (!updated.doc_photo && (lEmp.doc_photo || lEmp.avatar)) {
+                updated.doc_photo = lEmp.doc_photo || lEmp.avatar;
+                profileEnriched = true;
+              }
+              if (!updated.doc_aadhaar && lEmp.doc_aadhaar) {
+                updated.doc_aadhaar = lEmp.doc_aadhaar;
+                profileEnriched = true;
+              }
+              if (!updated.doc_pan && lEmp.doc_pan) {
+                updated.doc_pan = lEmp.doc_pan;
+                profileEnriched = true;
+              }
+              if (!updated.doc_bank_passbook && lEmp.doc_bank_passbook) {
+                updated.doc_bank_passbook = lEmp.doc_bank_passbook;
+                profileEnriched = true;
+              }
             }
-            return updated;
+            // Always guarantee authoritative official staff profiles
+            const fullyEnriched = enrichWithOfficialFallbacks(updated);
+            if (JSON.stringify(fullyEnriched) !== JSON.stringify(updated)) {
+              profileEnriched = true;
+            }
+            return fullyEnriched;
           });
 
           // Also check if local storage has legitimate employees that server might be missing
