@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
-import { exportAttendancePDF, exportPayrollPDF } from '../services/pdfExport';
+import { exportAttendancePDF, exportPayrollPDF, exportSingleEmployeeSalarySlipPDF } from '../services/pdfExport';
 
 export default function AttendanceReports() {
   const [data, setData] = useState(() => getLocalAttendance());
@@ -90,8 +90,23 @@ export default function AttendanceReports() {
   };
 
   const handleExportPayrollCSV = () => {
-    const url = api.getPayrollExportUrl(filters);
-    window.open(url, '_blank');
+    // Client-side enriched export ensuring Monthly Base Salary and Days Late are clearly stated
+    let csv = 'Employee ID,Employee Name,Department,Role,Monthly Base Salary (INR),Daily Rate (INR),Days Present,Days Late,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Estimated Net Total Payout (INR)\r\n';
+    
+    payrollStats.forEach(p => {
+      const isQualified = p.isFullPresentEligible ? 'YES (Qualified +2 Days Extra)' : 'NO';
+      csv += `"${p.emp_id}","${p.name}","${p.department}","${p.role}",${p.baseSalary},${p.dailyRate},${p.present},${p.late || 0},${p.absent},${p.halfday || 0},${p.otMinutes || 0},${p.otPay || 0},"${isQualified}",${p.fullPresentBonus || 0},${p.netTotalPayout || 0}\r\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const fileDate = filters.startDate ? `${filters.startDate}_to_${filters.endDate || 'now'}` : new Date().toISOString().slice(0, 10);
+    link.setAttribute('download', `Velavan_Payroll_Report_${fileDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDownloadAttendancePDF = () => {
@@ -100,6 +115,16 @@ export default function AttendanceReports() {
 
   const handleDownloadPayrollPDF = () => {
     exportPayrollPDF({ payrollStats, filters });
+  };
+
+  const handleDownloadSingleSlip = (p) => {
+    const empRecords = data.filter(r => r.emp_id === p.emp_id);
+    exportSingleEmployeeSalarySlipPDF({
+      employee: p,
+      stats: p,
+      records: empRecords,
+      filters
+    });
   };
 
   // Compute analytics metrics
@@ -130,12 +155,20 @@ export default function AttendanceReports() {
       let present = 0;
       let absent = 0;
       let halfday = 0;
+      let late = 0;
       let otMinutes = 0;
 
       records.forEach(r => {
-        if (r.status === 'present' || r.status === 'late') present += 1;
-        else if (r.status === 'absent') absent += 1;
-        else if (r.status === 'half_day') halfday += 1;
+        if (r.status === 'present') {
+          present += 1;
+        } else if (r.status === 'late') {
+          present += 1;
+          late += 1;
+        } else if (r.status === 'absent') {
+          absent += 1;
+        } else if (r.status === 'half_day') {
+          halfday += 1;
+        }
         if (r.ot_minutes > 0) otMinutes += r.ot_minutes;
       });
 
@@ -163,6 +196,7 @@ export default function AttendanceReports() {
         baseSalary,
         dailyRate: Math.round(dailyRate),
         present,
+        late,
         absent,
         halfday,
         otMinutes,
@@ -381,11 +415,12 @@ export default function AttendanceReports() {
               <tr>
                 <th className="px-4 py-3">Employee</th>
                 <th className="px-4 py-3">Department</th>
-                <th className="px-4 py-3">Base Salary</th>
-                <th className="px-4 py-3">Attendance</th>
+                <th className="px-4 py-3">Monthly Base Salary</th>
+                <th className="px-4 py-3">Attendance & Late Days</th>
                 <th className="px-4 py-3">Overtime</th>
                 <th className="px-4 py-3">Full Present Bonus (+2 Days)</th>
                 <th className="px-4 py-3 text-right">Net Estimated Payout</th>
+                <th className="px-3 py-3 text-center">Single Slip</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -413,17 +448,28 @@ export default function AttendanceReports() {
                     <span className="block text-[10px] text-slate-400 font-normal">₹{p.dailyRate}/day</span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center space-x-1.5 text-[11px]">
-                      <span className="text-emerald-700 font-semibold">{p.present} Present</span>
-                      <span>•</span>
-                      <span className={p.absent > 0 ? "text-rose-600 font-bold" : "text-slate-400"}>
-                        {p.absent} Absent
-                      </span>
-                      {p.halfday > 0 && (
-                        <>
-                          <span>•</span>
-                          <span className="text-blue-600 font-semibold">{p.halfday} Half-Day</span>
-                        </>
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1.5 text-[11px] flex-wrap">
+                        <span className="text-emerald-700 font-semibold">{p.present} Present</span>
+                        <span>•</span>
+                        <span className={p.absent > 0 ? "text-rose-600 font-bold" : "text-slate-400"}>
+                          {p.absent} Absent
+                        </span>
+                        {p.halfday > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-blue-600 font-semibold">{p.halfday} Half-Day</span>
+                          </>
+                        )}
+                      </div>
+                      {p.late > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          ⚠️ {p.late} {p.late === 1 ? 'Day Late' : 'Days Late'}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-emerald-700 bg-emerald-50 font-medium">
+                          ✓ 0 Late (On-Time)
+                        </span>
                       )}
                     </div>
                   </td>
@@ -456,6 +502,16 @@ export default function AttendanceReports() {
                     <span className="text-[10px] text-slate-400 block">
                       {p.isFullPresentEligible ? 'Base + 2 Days Bonus + OT' : 'Base - LOP + OT'}
                     </span>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <button
+                      onClick={() => handleDownloadSingleSlip(p)}
+                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-[#8b0000] border border-red-200 text-[11px] font-bold transition-all shadow-2xs hover:scale-105 active:scale-95 cursor-pointer"
+                      title={`Download Official Monthly Salary & Attendance Slip PDF for ${p.name}`}
+                    >
+                      <FileDown className="w-3.5 h-3.5 text-[#8b0000]" />
+                      <span>Slip PDF</span>
+                    </button>
                   </td>
                 </tr>
               ))}

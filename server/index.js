@@ -1702,19 +1702,27 @@ app.get('/api/reports/payroll-export', (req, res) => {
     if (endDate) { attQuery += ' AND date <= ?'; attParams.push(endDate); }
     const attendanceRecords = db.prepare(attQuery).all(...attParams);
 
-    let csv = 'Employee ID,Employee Name,Department,Role,Base Salary (INR),Days Present,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Estimated Net Payout (INR)\r\n';
+    let csv = 'Employee ID,Employee Name,Department,Role,Monthly Base Salary (INR),Daily Rate (INR),Days Present,Days Late,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Estimated Net Total Payout (INR)\r\n';
 
     for (const emp of employees) {
       const records = attendanceRecords.filter(r => r.emp_id === emp.emp_id);
       let present = 0;
+      let late = 0;
       let absent = 0;
       let halfday = 0;
       let otMinutes = 0;
 
       for (const r of records) {
-        if (r.status === 'present' || r.status === 'late') present++;
-        else if (r.status === 'absent') absent++;
-        else if (r.status === 'half_day') halfday++;
+        if (r.status === 'present') {
+          present++;
+        } else if (r.status === 'late') {
+          present++;
+          late++;
+        } else if (r.status === 'absent') {
+          absent++;
+        } else if (r.status === 'half_day') {
+          halfday++;
+        }
         if (r.ot_minutes) otMinutes += r.ot_minutes;
       }
 
@@ -1731,7 +1739,7 @@ app.get('/api/reports/payroll-export', (req, res) => {
       const bonus2Days = isFullPresent ? Math.round(2 * dailyRate) : 0;
       const netPayout = earnedBase + bonus2Days + otPay;
 
-      csv += `"${emp.emp_id}","${emp.name}","${emp.department}","${emp.role}",${baseSalary},${present},${absent},${halfday},${otMinutes},${otPay},"${isFullPresent ? 'YES (Qualified +2 Days Extra)' : 'NO'}",${bonus2Days},${netPayout}\r\n`;
+      csv += `"${emp.emp_id}","${emp.name}","${emp.department || 'Digital Marketing'}","${emp.role || 'Staff'}",${baseSalary},${Math.round(dailyRate)},${present},${late},${absent},${halfday},${otMinutes},${otPay},"${isFullPresent ? 'YES (Qualified +2 Days Extra)' : 'NO'}",${bonus2Days},${netPayout}\r\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
