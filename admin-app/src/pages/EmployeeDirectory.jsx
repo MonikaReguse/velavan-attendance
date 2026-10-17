@@ -65,14 +65,14 @@ export default function EmployeeDirectory({ setActiveTab }) {
       if (backupStr) {
         const parsed = JSON.parse(backupStr);
         if (Array.isArray(parsed?.employees) && parsed.employees.length > 0) {
-          return parsed.employees.map(enrichWithOfficialFallbacks);
+          return parsed.employees;
         }
       }
       const dirStr = localStorage.getItem('velavan_employee_directory_list');
       if (dirStr) {
         const parsed = JSON.parse(dirStr);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(enrichWithOfficialFallbacks);
+          return parsed;
         }
       }
     } catch (e) {}
@@ -175,63 +175,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
         return;
       }
 
-      // If server returned employees, server is authoritative
-      if (mergedData.length > 0) {
-        const cachedStr = localStorage.getItem('velavan_employee_details_cache');
-        if (cachedStr) {
-          try {
-            const cached = JSON.parse(cachedStr);
-            const validEmpIds = new Set(mergedData.map(e => String(e.emp_id)));
-            const validIds = new Set(mergedData.map(e => String(e.id)));
-
-            // If any cached profile matches an official employee by name, seamlessly transfer bank details & docs to their official ID
-            let cacheDirty = false;
-            for (const [key, c] of Object.entries(cached)) {
-              if (c && c.name) {
-                const cleanName = c.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-                const matchingEmp = mergedData.find(e => (e.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') === cleanName);
-                if (matchingEmp && matchingEmp.emp_id && key !== matchingEmp.emp_id) {
-                  cached[matchingEmp.emp_id] = { ...(cached[matchingEmp.emp_id] || {}), ...c, emp_id: matchingEmp.emp_id, id: matchingEmp.id };
-                  delete cached[key];
-                  cacheDirty = true;
-                }
-              }
-            }
-
-            // Clean up any remaining orphaned ghost entries from cache so old test data is completely eradicated
-            for (const key of Object.keys(cached)) {
-              if (!validEmpIds.has(key) && !validIds.has(key)) {
-                delete cached[key];
-                cacheDirty = true;
-              }
-            }
-            if (cacheDirty) {
-              localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cached));
-            }
-
-            // Merge all non-empty properties from cache for valid existing employees
-            mergedData = mergedData.map(emp => {
-              const c = cached[emp.emp_id] || cached[String(emp.id)];
-              if (!c) return emp;
-              let updated = { ...emp };
-              for (const [k, v] of Object.entries(c)) {
-                if (k === 'id') continue;
-                if (v !== undefined && v !== null && v !== '') {
-                  if (updated[k] === undefined || updated[k] === null || updated[k] === '') {
-                    updated[k] = v;
-                  }
-                }
-              }
-              // Also ensure has_face_enrolled is preserved if face biometrics exist in cache
-              if (!updated.has_face_enrolled && (c.has_face_enrolled || c.face_descriptor || c.face_enrolled_at)) {
-                updated.has_face_enrolled = 1;
-              }
-              return updated;
-            });
-          } catch (e) {}
-        }
-      }
-
+      // Server data is authoritative
       // Strict deduplication by emp_id AND normalized name to ensure strictly unique staff
       const seenIds = new Set();
       const seenNames = new Set();
@@ -243,16 +187,16 @@ export default function EmployeeDirectory({ setActiveTab }) {
         if (nameKey && seenNames.has(nameKey)) continue;
         if (idKey) seenIds.add(idKey);
         if (nameKey) seenNames.add(nameKey);
-        uniqueEmployees.push(enrichWithOfficialFallbacks(emp));
+        uniqueEmployees.push(emp);
       }
 
       setEmployees(uniqueEmployees);
       try {
         localStorage.setItem('velavan_employee_directory_list', JSON.stringify(uniqueEmployees));
-        const currentCache = JSON.parse(localStorage.getItem('velavan_employee_details_cache') || '{}');
+        const currentCache = {};
         for (const ue of uniqueEmployees) {
           if (ue && ue.emp_id) {
-            currentCache[ue.emp_id] = { ...(currentCache[ue.emp_id] || {}), ...ue };
+            currentCache[ue.emp_id] = ue;
           }
         }
         localStorage.setItem('velavan_employee_details_cache', JSON.stringify(currentCache));

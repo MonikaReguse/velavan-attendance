@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   ScanFace, 
   ExternalLink,
@@ -12,6 +12,19 @@ import Login from './pages/Login';
 
 function MainApp() {
   const { activeEmployee, isAuthenticated, logout, loading } = useApp();
+
+  useEffect(() => {
+    try {
+      const purgeKey = 'velavan_purge_old_models_v2';
+      if (!localStorage.getItem(purgeKey)) {
+        localStorage.removeItem('workpulse_employee_list');
+        localStorage.removeItem('velavan_master_database_backup');
+        localStorage.removeItem('velavan_attendance_logs_cache');
+        localStorage.removeItem('velavan_today_attendance');
+        localStorage.setItem(purgeKey, 'true');
+      }
+    } catch (e) {}
+  }, []);
 
   // If loading session
   if (loading) {

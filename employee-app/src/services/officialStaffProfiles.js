@@ -65,30 +65,8 @@ export const OFFICIAL_STAFF_FALLBACKS = {
 };
 
 export function enrichWithOfficialFallbacks(emp) {
-  if (!emp) return emp;
-  const key = emp.emp_id || '';
-  const cleanName = (emp.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  let fb = OFFICIAL_STAFF_FALLBACKS[key];
-  if (!fb) {
-    if (cleanName.includes('jegajothi')) fb = OFFICIAL_STAFF_FALLBACKS.VPDM04;
-    else if (cleanName.includes('jegatheeswari')) fb = OFFICIAL_STAFF_FALLBACKS.VPDM05;
-    else if (cleanName.includes('faritha')) fb = OFFICIAL_STAFF_FALLBACKS.VPDM06;
-  }
-  if (!fb) return emp;
-
-  const enriched = { ...emp };
-  // Strictly fill ONLY missing/empty properties so any user edits (salary, bank details, phone, name, etc.) are 100% preserved
-  for (const [k, v] of Object.entries(fb)) {
-    if (k === 'id') continue;
-    if (enriched[k] === undefined || enriched[k] === null || enriched[k] === '') {
-      enriched[k] = v;
-    }
-  }
-
-  // Face enrollment flag preservation if biometrics exist
-  if (!enriched.has_face_enrolled && (fb.has_face_enrolled || enriched.face_descriptor || fb.face_descriptor)) {
-    enriched.has_face_enrolled = 1;
-  }
-
-  return enriched;
+  // Live server database is 100% authoritative.
+  // Never overwrite or inject hardcoded fallback profiles or old salaries over user changes!
+  return emp;
 }
+

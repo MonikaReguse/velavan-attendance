@@ -1825,25 +1825,30 @@ app.post('/api/backup/restore', (req, res) => {
     let restoredEmployees = 0;
     let restoredAttendance = 0;
 
+    const empValidCols = new Set(db.prepare('PRAGMA table_info(employees)').all().map(c => c.name));
+    const attValidCols = new Set(db.prepare('PRAGMA table_info(attendance)').all().map(c => c.name));
+    const leaveValidCols = new Set(db.prepare('PRAGMA table_info(leave_requests)').all().map(c => c.name));
+
     const restoreTx = db.transaction(() => {
       if (Array.isArray(employees)) {
         for (const emp of employees) {
+          if (!emp || !emp.emp_id) continue;
           const empId = emp.emp_id;
           const existing = db.prepare('SELECT * FROM employees WHERE emp_id = ? OR id = ?').get(empId, emp.id || 0);
           if (existing) {
             const merged = { ...existing };
             for (const [k, v] of Object.entries(emp)) {
-              if (k === 'id') continue;
+              if (k === 'id' || !empValidCols.has(k)) continue;
               if (v !== undefined && v !== null && v !== '') {
                 merged[k] = v;
               }
             }
-            const keys = Object.keys(merged).filter(k => k !== 'id');
+            const keys = Object.keys(merged).filter(k => k !== 'id' && empValidCols.has(k));
             const setClause = keys.map(k => `${k} = ?`).join(', ');
             const values = keys.map(k => merged[k]);
             db.prepare(`UPDATE employees SET ${setClause} WHERE id = ?`).run(...values, existing.id);
           } else {
-            const keys = Object.keys(emp).filter(k => k !== 'id');
+            const keys = Object.keys(emp).filter(k => k !== 'id' && empValidCols.has(k));
             const placeholders = keys.map(() => '?').join(', ');
             const values = keys.map(k => emp[k]);
             db.prepare(`INSERT INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
@@ -1853,17 +1858,30 @@ app.post('/api/backup/restore', (req, res) => {
       }
       if (Array.isArray(attendance)) {
         for (const att of attendance) {
-          const keys = Object.keys(att).filter(k => k !== 'id');
-          const placeholders = keys.map(() => '?').join(', ');
-          const values = keys.map(k => att[k]);
-          db.prepare(`INSERT OR REPLACE INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          if (!att || !att.emp_id || !att.date) continue;
+          // Filter to only columns that actually exist in attendance table
+          const keys = Object.keys(att).filter(k => k !== 'id' && attValidCols.has(k));
+          if (keys.length === 0) continue;
+          
+          const existing = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
+          if (existing) {
+            const setClause = keys.map(k => `${k} = ?`).join(', ');
+            const values = keys.map(k => att[k]);
+            db.prepare(`UPDATE attendance SET ${setClause} WHERE id = ?`).run(...values, existing.id);
+          } else {
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => att[k]);
+            db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          }
           restoredAttendance++;
         }
       }
       const lList = leave_requests || leaves;
       if (Array.isArray(lList)) {
         for (const l of lList) {
-          const keys = Object.keys(l).filter(k => k !== 'id');
+          if (!l || !l.emp_id) continue;
+          const keys = Object.keys(l).filter(k => k !== 'id' && leaveValidCols.has(k));
+          if (keys.length === 0) continue;
           const placeholders = keys.map(() => '?').join(', ');
           const values = keys.map(k => l[k]);
           db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);

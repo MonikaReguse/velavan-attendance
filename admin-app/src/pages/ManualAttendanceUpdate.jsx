@@ -139,7 +139,7 @@ export default function ManualAttendanceUpdate() {
       setCustomOtMinutes('');
       setNotes('HR manual attendance entry');
     }
-  }, [selectedEmpId, selectedDate, recentLogs]);
+  }, [selectedEmpId, selectedDate]);
 
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
