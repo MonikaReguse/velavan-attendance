@@ -19,6 +19,7 @@ import {
 import { api } from '../services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 import { exportAttendancePDF, exportPayrollPDF, exportSingleEmployeeSalarySlipPDF } from '../services/pdfExport';
+import { isLateArrival, getLateMinutes } from '../services/timeUtils';
 
 export default function AttendanceReports() {
   const [data, setData] = useState(() => getLocalAttendance());
@@ -114,7 +115,7 @@ export default function AttendanceReports() {
   };
 
   const handleDownloadPayrollPDF = () => {
-    exportPayrollPDF({ payrollStats, filters });
+    exportPayrollPDF({ payrollStats, attendanceData: data, filters });
   };
 
   const handleDownloadSingleSlip = (p) => {
@@ -131,7 +132,7 @@ export default function AttendanceReports() {
   const totalRecords = data.length;
   const totalHours = data.reduce((sum, r) => sum + (r.total_hours || 0), 0);
   const avgDailyHours = totalRecords ? (totalHours / totalRecords).toFixed(1) : '0';
-  const lateRecords = data.filter(r => r.status === 'late').length;
+  const lateRecords = data.filter(r => isLateArrival(r.clock_in, r.status)).length;
   const latePercent = totalRecords ? Math.round((lateRecords / totalRecords) * 100) : 0;
   const facelockPunches = data.filter(r => r.method === 'facelock').length;
   const facelockPercent = totalRecords ? Math.round((facelockPunches / totalRecords) * 100) : 0;
@@ -145,7 +146,7 @@ export default function AttendanceReports() {
     }
     deptStats[dept].count += 1;
     deptStats[dept].hours += (r.total_hours || 0);
-    if (r.status === 'late') deptStats[dept].late += 1;
+    if (isLateArrival(r.clock_in, r.status)) deptStats[dept].late += 1;
   });
 
   // Calculate Employee Payroll & Full Attendance (+2 Days Extra Salary)
@@ -159,11 +160,12 @@ export default function AttendanceReports() {
       let otMinutes = 0;
 
       records.forEach(r => {
-        if (r.status === 'present') {
-          present += 1;
-        } else if (r.status === 'late') {
+        const isLate = isLateArrival(r.clock_in, r.status);
+        if (isLate) {
           present += 1;
           late += 1;
+        } else if (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) {
+          present += 1;
         } else if (r.status === 'absent') {
           absent += 1;
         } else if (r.status === 'half_day') {

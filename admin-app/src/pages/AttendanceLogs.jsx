@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
-import { formatTime } from '../services/timeUtils';
+import { formatTime, isLateArrival, getLateMinutes } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
 import { exportAttendancePDF } from '../services/pdfExport';
 
@@ -336,7 +336,8 @@ export default function AttendanceLogs() {
                     : (empInfo.role || (log.department && log.department !== 'Operations' ? log.department : '') || 'Digital Marketing');
                   const displayAvatar = resolvePhotoUrl(log.punch_photo || log.avatar || empInfo.avatar, displayName);
 
-                  const isLate = log.status === 'late';
+                  const isLate = isLateArrival(log.clock_in, log.status);
+                  const lateMins = getLateMinutes(log.clock_in);
                   const isHalfDay = log.status === 'half_day';
                   const isAbsent = log.status === 'absent';
                   const isOngoing = !log.clock_out || log.clock_out === log.clock_in;
@@ -361,7 +362,14 @@ export default function AttendanceLogs() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{displayDept}</td>
-                      <td className="px-4 py-3 font-mono text-slate-700 font-semibold">{formatTime(log.clock_in)}</td>
+                      <td className="px-4 py-3 font-mono text-slate-700 font-semibold">
+                        {formatTime(log.clock_in)}
+                        {isLate && (
+                          <span className="block text-[10px] text-amber-700 font-bold">
+                            (Late +${lateMins > 0 ? lateMins : 1}m)
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-mono text-slate-700">
                         {!isOngoing ? (
                           formatTime(log.clock_out)
@@ -398,7 +406,7 @@ export default function AttendanceLogs() {
                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           }`}
                         >
-                          {isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : isAbsent ? 'Absent' : 'Present'}
+                          {isLate ? `Late Arrival (+${lateMins > 0 ? lateMins : 1}m)` : isHalfDay ? 'Half Day' : isAbsent ? 'Absent' : 'Present'}
                         </span>
                       </td>
                       <td className="px-4 py-3">
