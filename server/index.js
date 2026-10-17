@@ -1550,10 +1550,11 @@ app.post('/api/attendance/manual', (req, res) => {
       saveDbSnapshot();
       return res.json({ success: true, updated: true, id: targetRecordId });
     } else {
+      const empAvatar = emp?.avatar || null;
       const result = db.prepare(`
-        INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
-      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment');
+        INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', empAvatar);
       saveDbSnapshot();
       res.json({ success: true, created: true, id: result.lastInsertRowid });
     }
@@ -1647,6 +1648,21 @@ app.delete('/api/attendance', (req, res) => {
     }
     saveDbSnapshot();
     res.json({ success: true, message: 'Attendance record deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Complete Attendance Reset (Clean Slate)
+app.post('/api/attendance/reset', (req, res) => {
+  try {
+    db.prepare('DELETE FROM attendance').run();
+    try {
+      db.prepare("DELETE FROM sqlite_sequence WHERE name = 'attendance'").run();
+    } catch (e) {}
+    saveDbSnapshot();
+    console.log('[Attendance Reset] All attendance records have been cleared from database.');
+    res.json({ success: true, message: 'All attendance records successfully reset.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

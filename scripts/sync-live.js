@@ -80,22 +80,42 @@ async function sync() {
       }
     }
 
-    // Sync Attendance
+    // Sync Attendance: accurately mirror authoritative production attendance
     if (Array.isArray(backup.attendance)) {
-      for (const att of backup.attendance) {
-        const keys = Object.keys(att).filter(k => k !== 'id');
-        const placeholders = keys.map(() => '?').join(', ');
-        const updates = keys.map(k => `${k} = ?`).join(', ');
-        const values = keys.map(k => att[k]);
+      if (backup.attendance.length === 0) {
+        db.prepare('DELETE FROM attendance').run();
+        try {
+          db.prepare("DELETE FROM sqlite_sequence WHERE name = 'attendance'").run();
+        } catch (e) {}
+      } else {
+        const prodAttIds = new Set(backup.attendance.map(a => a.id).filter(Boolean));
+        if (prodAttIds.size > 0) {
+          const localAtts = db.prepare('SELECT id FROM attendance').all();
+          for (const la of localAtts) {
+            if (!prodAttIds.has(la.id)) {
+              db.prepare('DELETE FROM attendance WHERE id = ?').run(la.id);
+            }
+          }
+        }
+        for (const att of backup.attendance) {
+          const keys = Object.keys(att).filter(k => k !== 'id');
+          const placeholders = keys.map(() => '?').join(', ');
+          const updates = keys.map(k => `${k} = ?`).join(', ');
+          const values = keys.map(k => att[k]);
 
-        const exists = db.prepare('SELECT id FROM attendance WHERE id = ? OR (emp_id = ? AND date = ?)').get(att.id, att.emp_id, att.date);
-        if (exists) {
-          db.prepare(`UPDATE attendance SET ${updates} WHERE id = ?`).run(...values, exists.id);
-        } else {
-          db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          const exists = db.prepare('SELECT id FROM attendance WHERE id = ? OR (emp_id = ? AND date = ?)').get(att.id, att.emp_id, att.date);
+          if (exists) {
+            db.prepare(`UPDATE attendance SET ${updates} WHERE id = ?`).run(...values, exists.id);
+          } else {
+            db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          }
         }
       }
     }
+
+    try {
+      db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(emp_id, date)').run();
+    } catch (e) {}
 
     // Sync Leave Requests
     if (Array.isArray(backup.leave_requests)) {

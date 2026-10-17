@@ -224,10 +224,10 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     map.set(`${s.emp_id}_${s.date}`, s);
   }
 
-  // 2. Only add offline local punches that do not exist on the server yet
+  // 2. Only add offline local punches that have pending offline flag and do not exist on the server yet
   for (const l of localList) {
     const key = `${l.emp_id}_${l.date}`;
-    if (!map.has(key)) {
+    if (!map.has(key) && l.is_offline_pending) {
       map.set(key, l);
     }
   }

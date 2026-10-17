@@ -185,7 +185,10 @@ function initDb() {
     db.exec(`UPDATE attendance SET ot_minutes = CAST(ROUND(ot_hours * 60) AS INTEGER) WHERE (ot_minutes IS NULL OR ot_minutes = 0) AND ot_hours > 0`);
   } catch (e) {}
 
-
+  // Unique index on (emp_id, date) to prevent duplicate daily records at the database level
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(emp_id, date)`);
+  } catch (e) {}
 
   console.log('Database initialized successfully.');
 }

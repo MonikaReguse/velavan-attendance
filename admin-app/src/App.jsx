@@ -61,17 +61,24 @@ export default function App() {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);
 
-    // Safety check: ensure legacy mock punches from 2026-10-15 are cleaned up non-destructively
-    try {
-      const bStr = localStorage.getItem('velavan_master_database_backup');
-      if (bStr) {
-        const b = JSON.parse(bStr);
-        if (Array.isArray(b?.attendance)) {
-          b.attendance = b.attendance.filter(a => a && !(a.clock_in === '17:36:14' && a.date === '2026-10-15'));
+    // One-Time Initial Reset: Clean slate for daily attendance from scratch
+    const initialResetKey = 'velavan_attendance_reset_v1_scratch';
+    if (!localStorage.getItem(initialResetKey)) {
+      try {
+        localStorage.removeItem('velavan_attendance_logs_cache');
+        localStorage.removeItem('velavan_today_attendance');
+        localStorage.removeItem('velavan_realtime_punches');
+        localStorage.removeItem('velavan_dashboard_summary');
+        localStorage.removeItem('velavan_deleted_punches');
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        if (bStr) {
+          const b = JSON.parse(bStr);
+          b.attendance = [];
           localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+      localStorage.setItem(initialResetKey, 'true');
+    }
 
     // Resilient Two-Way Real-time Sync between browser and server
     const runDisasterRecovery = async () => {
@@ -153,6 +160,7 @@ export default function App() {
           const serverAttKeys = new Set(serverAtts.map(a => `${a.emp_id}_${a.date}`));
           const serverEmpKeys = new Set(serverEmps.map(e => e.emp_id));
           const missingAtts = localAtts.filter(a => 
+            a.is_offline_pending === true &&
             serverEmpKeys.has(a.emp_id) && 
             !serverAttKeys.has(`${a.emp_id}_${a.date}`) &&
             !deletedKeys.has(`${a.emp_id}_${a.date}`)
