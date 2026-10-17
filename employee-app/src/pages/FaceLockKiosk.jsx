@@ -599,7 +599,7 @@ export default function FaceLockKiosk() {
                     >
                       <div className="flex items-center space-x-2.5">
                         <img
-                          src={resolvePhotoUrl(p.punch_photo || p.avatar, p.employee_name)}
+                          src={resolvePhotoUrl(p.avatar || p.punch_photo, p.employee_name)}
                           alt={p.employee_name}
                           onError={(e) => handleImageError(e, p.employee_name)}
                           className="w-8 h-8 rounded-full object-cover border border-slate-700 bg-slate-800"

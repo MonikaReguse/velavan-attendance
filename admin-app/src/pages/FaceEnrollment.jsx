@@ -214,6 +214,44 @@ export default function FaceEnrollment() {
       );
 
       if (res.success) {
+        try {
+          const empId = selectedEmployee.emp_id;
+          const newAvatar = res.avatar || snapshotBase64;
+          
+          const cacheStr = localStorage.getItem('velavan_employee_details_cache') || '{}';
+          const cache = JSON.parse(cacheStr);
+          if (empId) {
+            cache[empId] = { ...(cache[empId] || selectedEmployee), avatar: newAvatar, has_face_enrolled: 1 };
+            localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cache));
+          }
+
+          const bStr = localStorage.getItem('velavan_master_database_backup');
+          if (bStr) {
+            const b = JSON.parse(bStr);
+            if (Array.isArray(b.employees)) {
+              const idx = b.employees.findIndex(e => e.emp_id === empId || String(e.id) === String(selectedEmployee.id));
+              if (idx !== -1) {
+                b.employees[idx].avatar = newAvatar;
+                b.employees[idx].has_face_enrolled = 1;
+                localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+              }
+            }
+          }
+
+          const dStr = localStorage.getItem('velavan_employee_directory_list');
+          if (dStr) {
+            const d = JSON.parse(dStr);
+            if (Array.isArray(d)) {
+              const idx = d.findIndex(e => e.emp_id === empId || String(e.id) === String(selectedEmployee.id));
+              if (idx !== -1) {
+                d[idx].avatar = newAvatar;
+                d[idx].has_face_enrolled = 1;
+                localStorage.setItem('velavan_employee_directory_list', JSON.stringify(d));
+              }
+            }
+          }
+        } catch (cacheErr) {}
+
         confetti({
           particleCount: 100,
           spread: 70,
@@ -274,6 +312,44 @@ export default function FaceEnrollment() {
         const base64 = reader.result;
         const res = await api.saveFaceDescriptor(selectedEmployee.id, result.descriptor, base64);
         if (res.success) {
+          try {
+            const empId = selectedEmployee.emp_id;
+            const newAvatar = res.avatar || base64;
+            
+            const cacheStr = localStorage.getItem('velavan_employee_details_cache') || '{}';
+            const cache = JSON.parse(cacheStr);
+            if (empId) {
+              cache[empId] = { ...(cache[empId] || selectedEmployee), avatar: newAvatar, has_face_enrolled: 1 };
+              localStorage.setItem('velavan_employee_details_cache', JSON.stringify(cache));
+            }
+
+            const bStr = localStorage.getItem('velavan_master_database_backup');
+            if (bStr) {
+              const b = JSON.parse(bStr);
+              if (Array.isArray(b.employees)) {
+                const idx = b.employees.findIndex(e => e.emp_id === empId || String(e.id) === String(selectedEmployee.id));
+                if (idx !== -1) {
+                  b.employees[idx].avatar = newAvatar;
+                  b.employees[idx].has_face_enrolled = 1;
+                  localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+                }
+              }
+            }
+
+            const dStr = localStorage.getItem('velavan_employee_directory_list');
+            if (dStr) {
+              const d = JSON.parse(dStr);
+              if (Array.isArray(d)) {
+                const idx = d.findIndex(e => e.emp_id === empId || String(e.id) === String(selectedEmployee.id));
+                if (idx !== -1) {
+                  d[idx].avatar = newAvatar;
+                  d[idx].has_face_enrolled = 1;
+                  localStorage.setItem('velavan_employee_directory_list', JSON.stringify(d));
+                }
+              }
+            }
+          } catch (cacheErr) {}
+
           confetti({ particleCount: 80, spread: 60 });
           setStatusMessage(`Enrolled ${selectedEmployee.name} via photo upload!`);
           await loadEmployees();

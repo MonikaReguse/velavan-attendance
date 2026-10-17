@@ -9,6 +9,7 @@
     "build:admin": "npm --prefix admin-app run build",
     "build:employee": "npm --prefix employee-app run build",
     "seed": "node server/seed.js",
+    "sync:live": "node scripts/sync-live.js",
     "server": "node server/index.js",
     "admin": "npm --prefix admin-app run dev",
     "employee": "npm --prefix employee-app run dev"

@@ -14,17 +14,7 @@ function MainApp() {
   const { activeEmployee, isAuthenticated, logout, loading } = useApp();
 
   useEffect(() => {
-    try {
-      const purgeKey = 'velavan_purge_old_models_v3';
-      if (!localStorage.getItem(purgeKey)) {
-        localStorage.removeItem('workpulse_employee_list');
-        localStorage.removeItem('velavan_master_database_backup');
-        localStorage.removeItem('velavan_attendance_logs_cache');
-        localStorage.removeItem('velavan_today_attendance');
-        localStorage.removeItem('velavan_realtime_punches');
-        localStorage.setItem(purgeKey, 'true');
-      }
-    } catch (e) {}
+    // Non-destructive initialization: keep all local employee profiles and punch history safe
   }, []);
 
   // If loading session

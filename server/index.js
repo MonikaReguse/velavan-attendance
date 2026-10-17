@@ -68,23 +68,21 @@ function loadDbSnapshot() {
     // Find any snapshot employees not present in the current database table and NOT deleted
     const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id) && !deletedEmpIds.has(e.emp_id));
 
-    const currentAttCount = db.prepare('SELECT COUNT(*) as count FROM attendance').get().count;
-    const shouldRestore = currentEmps.length === 0 || (currentAttCount === 0 && Array.isArray(data.attendance) && data.attendance.length > 0);
-
-    if (shouldRestore) {
-      console.log(`[Snapshot Auto-Restore] Synchronizing database with snapshot (restoring ${missingEmployees.length} missing employees, ${data.attendance?.length || 0} attendance records)...`);
+    // Strictly non-destructive: Only restore from snapshot if the database is completely empty (cold initial setup)
+    // Never overwrite or replace existing employees so user edits are 100% permanent!
+    if (currentEmps.length === 0 && Array.isArray(data.employees) && data.employees.length > 0) {
+      console.log(`[Snapshot Auto-Restore] Cold database detected. Initializing with ${data.employees.length} employees...`);
       const restoreTx = db.transaction(() => {
         for (const emp of data.employees) {
           if (deletedEmpIds.has(emp.emp_id)) continue;
           const keys = Object.keys(emp).filter(k => k !== 'id');
           const placeholders = keys.map(() => '?').join(', ');
           const values = keys.map(k => emp[k]);
-          db.prepare(`INSERT OR REPLACE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          db.prepare(`INSERT OR IGNORE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
         }
         if (Array.isArray(data.attendance)) {
           for (const att of data.attendance) {
             if (deletedEmpIds.has(att.emp_id)) continue;
-            // Check if record for this employee and date already exists
             const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
             if (!exists) {
               const keys = Object.keys(att).filter(k => k !== 'id');
@@ -100,12 +98,12 @@ function loadDbSnapshot() {
             const keys = Object.keys(l).filter(k => k !== 'id');
             const placeholders = keys.map(() => '?').join(', ');
             const values = keys.map(k => l[k]);
-            db.prepare(`INSERT OR REPLACE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+            db.prepare(`INSERT OR IGNORE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
           }
         }
       });
       restoreTx();
-      console.log(`[Snapshot Auto-Restore] Successfully synchronized database to ${data.employees.length} employees.`);
+      console.log(`[Snapshot Auto-Restore] Successfully initialized database.`);
     }
   } catch (err) {
     console.error('[Snapshot Auto-Restore Error]:', err.message);
@@ -1058,6 +1056,15 @@ app.post('/api/employees/:id/face-descriptor', (req, res) => {
         SET face_descriptor = ?, face_enrolled_at = ?, avatar = ?, doc_photo = COALESCE(doc_photo, ?)
         WHERE id = ? OR emp_id = ?
       `).run(JSON.stringify(descriptor), now, directAvatar, directAvatar, req.params.id, req.params.id);
+
+      try {
+        const emp = db.prepare('SELECT emp_id FROM employees WHERE id = ? OR emp_id = ?').get(req.params.id, req.params.id);
+        if (emp && emp.emp_id) {
+          db.prepare('UPDATE attendance SET punch_photo = ? WHERE emp_id = ?').run(directAvatar, emp.emp_id);
+        }
+      } catch (punchErr) {
+        console.warn('Error syncing punch photo on face enrollment:', punchErr.message);
+      }
     } else {
       db.prepare(`
         UPDATE employees 

@@ -688,7 +688,7 @@ export default function OfficeFaceLockKiosk() {
                     >
                       <div className="flex items-center space-x-3">
                         <img
-                          src={resolvePhotoUrl(item.punch_photo || item.avatar, item.name)}
+                          src={resolvePhotoUrl(item.avatar || item.punch_photo, item.name)}
                           alt={item.name}
                           onError={(e) => handleImageError(e, item.name)}
                           className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"
