@@ -14,11 +14,15 @@ import {
   Sparkles,
   Award,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 import { api } from '../services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 import { exportAttendancePDF, exportPayrollPDF, exportSingleEmployeeSalarySlipPDF } from '../services/pdfExport';
+import { exportMonthlyPayrollExcel, exportMonthlyPayrollCSV, getMonthCalendarInfo } from '../services/excelExport';
 import { isLateArrival, getLateMinutes } from '../services/timeUtils';
 
 export default function AttendanceReports() {
@@ -36,10 +40,21 @@ export default function AttendanceReports() {
     return [];
   });
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    startDate: '',
-    endDate: '',
-    department: ''
+  
+  // Salary Month Picker State (default: current YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const [filters, setFilters] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const startStr = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const endStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return { startDate: startStr, endDate: endStr, department: '' };
   });
 
   useEffect(() => {
@@ -124,30 +139,88 @@ export default function AttendanceReports() {
     }
   };
 
+  // Handle Month Selection
+  const handleMonthChange = (monthStr) => {
+    if (!monthStr) return;
+    setSelectedMonth(monthStr);
+    const [y, m] = monthStr.split('-').map(Number);
+    const startStr = `${y}-${String(m).padStart(2, '0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const newFilters = { ...filters, startDate: startStr, endDate: endStr };
+    setFilters(newFilters);
+    loadReport(newFilters);
+  };
+
+  const handlePrevMonth = () => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const prevDate = new Date(y, m - 2, 1);
+    const prevMonthStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    handleMonthChange(prevMonthStr);
+  };
+
+  const handleNextMonth = () => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const nextDate = new Date(y, m, 1);
+    const nextMonthStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+    handleMonthChange(nextMonthStr);
+  };
+
+  const handleCurrentMonth = () => {
+    const now = new Date();
+    const curMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    handleMonthChange(curMonthStr);
+  };
+
+  // Formatted selected month name for headers and file names (e.g. "October 2026")
+  const selectedMonthName = useMemo(() => {
+    if (!selectedMonth) return '';
+    try {
+      const [y, m] = selectedMonth.split('-').map(Number);
+      return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    } catch {
+      return selectedMonth;
+    }
+  }, [selectedMonth]);
+
+  // Calendar metrics for selected month (daysInMonth, sundaysCount, workingDays)
+  const calendarInfo = useMemo(() => {
+    if (!selectedMonth) return { daysInMonth: 30, sundaysCount: 4, workingDays: 26 };
+    try {
+      const [y, m] = selectedMonth.split('-').map(Number);
+      return getMonthCalendarInfo(y, m - 1);
+    } catch {
+      return { daysInMonth: 30, sundaysCount: 4, workingDays: 26 };
+    }
+  }, [selectedMonth]);
+
+  // 1. Download Comprehensive 20-Column Monthly Payroll Excel (.xlsx)
+  const handleDownloadMonthlyExcel = () => {
+    exportMonthlyPayrollExcel({
+      payrollStats,
+      attendanceData: data,
+      filters,
+      generatedBy: 'Administrator'
+    });
+  };
+
+  // 2. Download 20-Column Monthly Payroll CSV (.csv)
+  const handleDownloadMonthlyCSV = () => {
+    exportMonthlyPayrollCSV({
+      payrollStats,
+      filters,
+      generatedBy: 'Administrator'
+    });
+  };
+
+  // 3. Raw Attendance Logs CSV
   const handleExportCSV = () => {
     const url = api.getExportUrl(filters);
     window.open(url, '_blank');
   };
 
-  const handleExportPayrollCSV = () => {
-    // Client-side enriched export ensuring Monthly Base Salary, This Month Earned Salary and Days Late are clearly stated
-    let csv = 'Employee ID,Employee Name,Department,Role,Monthly Base Salary (INR),Daily Rate (INR),This Month Earned Salary (INR),Days Present,Days Late,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Net Month Salary Payout (INR)\r\n';
-    
-    payrollStats.forEach(p => {
-      const isQualified = p.isFullPresentEligible ? 'YES (Qualified +2 Days Extra)' : 'NO';
-      csv += `"${p.emp_id}","${p.name}","${p.department}","${p.role}",${p.baseSalary},${p.dailyRate},${p.earnedBase},${p.present},${p.late || 0},${p.absent},${p.halfday || 0},${p.otMinutes || 0},${p.otPay || 0},"${isQualified}",${p.fullPresentBonus || 0},${p.netTotalPayout || 0}\r\n`;
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const fileDate = filters.startDate ? `${filters.startDate}_to_${filters.endDate || 'now'}` : new Date().toISOString().slice(0, 10);
-    link.setAttribute('download', `Velavan_Payroll_Report_${fileDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  // Legacy Payroll CSV handler (for backward compatibility if needed)
+  const handleExportPayrollCSV = handleDownloadMonthlyCSV;
 
   const handleDownloadAttendancePDF = () => {
     exportAttendancePDF({ data, filters });
@@ -188,20 +261,29 @@ export default function AttendanceReports() {
     if (isLateArrival(r.clock_in, r.status)) deptStats[dept].late += 1;
   });
 
-  // Calculate Employee Payroll & Full Attendance (+2 Days Extra Salary)
+  // Calculate Employee Payroll with all 20 required report fields & Full Attendance Bonus
   const payrollStats = useMemo(() => {
+    const { sundaysCount, workingDays } = calendarInfo;
+
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
       let present = 0;
       let absent = 0;
       let halfday = 0;
+      let paidLeaveDays = 0;
       let late = 0;
       let otMinutes = 0;
 
       records.forEach(r => {
         const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+        const isLeave = r.status === 'leave' || r.status === 'paid_leave';
         const isLate = !isOD && isLateArrival(r.clock_in, r.status);
-        if (isOD) {
+        
+        if (isLeave) {
+          paidLeaveDays += 1;
+          present += 1;
+        } else if (isOD) {
+          paidLeaveDays += 1;
           present += 1;
         } else if (isLate) {
           present += 1;
@@ -217,41 +299,58 @@ export default function AttendanceReports() {
       });
 
       const baseSalary = Number(emp.salary || 0);
-      const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
-      const shiftMinutes = 510;
+      const dailyRate = baseSalary > 0 ? Math.round(baseSalary / 30) : 0;
+      const shiftMinutes = 510; // 8.5 hours
       const otRatePerMin = dailyRate > 0 ? (dailyRate / shiftMinutes) * 1.5 : 0;
       const otPay = Math.round(otMinutes * otRatePerMin);
+      const otHours = Number((otMinutes / 60).toFixed(2));
 
+      // Deductions: Absent days + half-days
       const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
       const earnedBase = Math.max(0, Math.round(baseSalary - deductions));
 
       // Policy: If 100% full present (0 absences, 0 half-days, with at least 1 shift logged),
       // employee receives 2 days extra salary bonus!
       const isFullPresentEligible = absent === 0 && halfday === 0 && present > 0;
-      const fullPresentBonus = isFullPresentEligible ? Math.round(2 * dailyRate) : 0;
-      const netTotalPayout = earnedBase + fullPresentBonus + otPay;
+      const doubleSalaryDays = isFullPresentEligible ? 2 : 0;
+      const fullPresentBonus = Math.round(doubleSalaryDays * dailyRate);
+      
+      const otherAllowances = 0;
+      const totalMonthlySalary = baseSalary + otPay + fullPresentBonus + otherAllowances;
+      const finalPayableSalary = Math.max(0, totalMonthlySalary - deductions);
+      const netTotalPayout = finalPayableSalary;
 
       return {
         emp_id: emp.emp_id,
         name: emp.name,
         department: emp.department || 'Digital Marketing',
-        role: emp.role || 'Staff',
+        role: emp.role || emp.designation || 'Staff',
         avatar: emp.avatar,
         baseSalary,
-        dailyRate: Math.round(dailyRate),
+        dailyRate,
+        workingDays,
         present,
         late,
         absent,
         halfday,
+        paidLeaveDays,
+        weeklyOffs: sundaysCount,
         otMinutes,
+        otHours,
         otPay,
+        doubleSalaryDays,
+        doubleSalaryAmount: fullPresentBonus,
+        otherAllowances,
+        deductions,
+        totalMonthlySalary,
+        finalPayableSalary,
         earnedBase,
         isFullPresentEligible,
         fullPresentBonus,
         netTotalPayout
       };
     });
-  }, [employees, data]);
+  }, [employees, data, calendarInfo]);
 
   // Aggregate Payroll Totals
   const totalPayroll = payrollStats.reduce((sum, p) => sum + p.netTotalPayout, 0);
@@ -264,94 +363,144 @@ export default function AttendanceReports() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Attendance Analytics & Payroll Reports</h2>
+          <h2 className="text-lg font-bold text-slate-800">Attendance Analytics & Monthly Salary Reports</h2>
           <p className="text-xs text-slate-500">
-            Generate monthly timesheets, department metrics, work-hour reports, and download payroll-ready PDF and CSV reports with Full Present (+2 Days Extra Salary) calculations.
+            Generate monthly payroll summaries, full attendance bonus (+2 Days extra salary), overtime, and export 20-column Excel (.xlsx) and CSV reports.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* PDF Format Downloads */}
+          {/* 20-Column Monthly Excel Export (.xlsx) */}
           <button
-            onClick={handleDownloadAttendancePDF}
-            className="flex items-center space-x-1.5 bg-[#8b0000] hover:bg-[#6b0000] text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
-            title="Download Official Attendance Report in PDF Format"
+            onClick={handleDownloadMonthlyExcel}
+            className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Download Comprehensive 20-Column Monthly Attendance & Salary Excel Report (.xlsx) with Executive Summary"
           >
-            <FileDown className="w-4 h-4" />
-            <span>Attendance PDF</span>
+            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            <span>Monthly Excel (.xlsx)</span>
           </button>
+
+          {/* 20-Column Monthly CSV Export (.csv) */}
+          <button
+            onClick={handleDownloadMonthlyCSV}
+            className="flex items-center space-x-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Download Comprehensive 20-Column Monthly Attendance & Salary Report as CSV"
+          >
+            <Download className="w-4 h-4 text-teal-200" />
+            <span>Monthly CSV (20 Cols)</span>
+          </button>
+
+          {/* PDF Format Downloads */}
           <button
             onClick={handleDownloadPayrollPDF}
             className="flex items-center space-x-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
             title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
           >
-            <FileText className="w-4 h-4" />
-            <span>Payroll PDF (+2 Days)</span>
+            <FileText className="w-4 h-4 text-amber-200" />
+            <span>Payroll PDF</span>
           </button>
 
-          {/* CSV Downloads */}
+          <button
+            onClick={handleDownloadAttendancePDF}
+            className="flex items-center space-x-1.5 bg-[#8b0000] hover:bg-[#6b0000] text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
+            title="Download Official Attendance Report in PDF Format"
+          >
+            <FileDown className="w-4 h-4 text-rose-200" />
+            <span>Attendance PDF</span>
+          </button>
+
           <button
             onClick={handleExportCSV}
             className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2.5 rounded-xl shadow-xs transition-colors"
-            title="Export Attendance Logs as CSV"
+            title="Export Raw Attendance Punch Logs as CSV"
           >
-            <Download className="w-4 h-4" />
-            <span>Logs CSV</span>
-          </button>
-          <button
-            onClick={handleExportPayrollCSV}
-            className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2.5 rounded-xl shadow-xs transition-all"
-            title="Export Payroll Table as CSV"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Payroll CSV</span>
+            <Download className="w-4 h-4 text-slate-300" />
+            <span>Raw Logs CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Date Range Selector */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center gap-3 text-xs">
-        <div className="flex items-center space-x-2">
-          <span className="text-slate-500 font-medium">From:</span>
-          <input
-            type="date"
-            value={filters.startDate}
-            onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-slate-800 font-mono"
-          />
-        </div>
+      {/* Salary Month Selector & Filter Controls Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Month Selector Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-600 font-bold flex items-center space-x-1">
+            <Calendar className="w-4 h-4 text-emerald-700" />
+            <span>Salary Month:</span>
+          </span>
 
-        <div className="flex items-center space-x-2">
-          <span className="text-slate-500 font-medium">To:</span>
-          <input
-            type="date"
-            value={filters.endDate}
-            onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-slate-800 font-mono"
-          />
-        </div>
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+            <button
+              onClick={handlePrevMonth}
+              className="p-1.5 hover:bg-white rounded text-slate-700 transition-colors cursor-pointer"
+              title="Previous Month"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              className="px-2.5 py-1 bg-white border border-slate-200 rounded text-slate-900 font-mono font-bold text-xs cursor-pointer focus:ring-1 focus:ring-emerald-500"
+            />
+            <button
+              onClick={handleNextMonth}
+              className="p-1.5 hover:bg-white rounded text-slate-700 transition-colors cursor-pointer"
+              title="Next Month"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-        <div className="flex items-center space-x-2">
-          <span className="text-slate-500 font-medium">Department:</span>
-          <select
-            value={filters.department}
-            onChange={(e) => setFilters({ ...filters, department: e.target.value })}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+          <button
+            onClick={handleCurrentMonth}
+            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs transition-colors"
+            title="Jump to Current Month"
           >
-            <option value="">All Departments</option>
-            <option value="Digital Marketing">Digital Marketing</option>
-            <option value="Operations">Operations</option>
-            <option value="Information Technology">Information Technology</option>
-            <option value="Human Resources">Human Resources</option>
-            <option value="Sales">Sales</option>
-          </select>
+            Current Month
+          </button>
+
+          {/* Month Calendar Information Pill */}
+          <div className="hidden md:inline-flex items-center space-x-2 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-200 font-medium">
+            <span className="font-bold">{selectedMonthName}</span>
+            <span>•</span>
+            <span>{calendarInfo.workingDays} Working Days</span>
+            <span>•</span>
+            <span>{calendarInfo.sundaysCount} Weekly Offs (Sundays)</span>
+          </div>
         </div>
 
-        <button
-          onClick={() => loadReport(filters)}
-          className="px-4 py-1.5 bg-[#8b0000] text-white rounded-lg hover:bg-[#6b0000] font-semibold transition-colors"
-        >
-          Generate Report
-        </button>
+        {/* Right side filters: Department & Live Refresh */}
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            <span className="text-slate-500 font-medium">Dept:</span>
+            <select
+              value={filters.department}
+              onChange={(e) => {
+                const newFilters = { ...filters, department: e.target.value };
+                setFilters(newFilters);
+                loadReport(newFilters);
+              }}
+              className="px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800 text-xs"
+            >
+              <option value="">All Departments</option>
+              <option value="Digital Marketing">Digital Marketing</option>
+              <option value="Operations">Operations</option>
+              <option value="Information Technology">Information Technology</option>
+              <option value="Human Resources">Human Resources</option>
+              <option value="Sales">Sales</option>
+            </select>
+          </div>
+
+          <button
+            onClick={() => loadReport(filters)}
+            disabled={loading}
+            className="flex items-center space-x-1 px-3 py-1.5 bg-[#8b0000] hover:bg-[#6b0000] text-white rounded-lg font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+            title="Refresh from Render Cloud Database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Syncing...' : 'Sync Data'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary Metrics */}
@@ -359,7 +508,7 @@ export default function AttendanceReports() {
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
           <div className="text-slate-400 text-xs font-medium mb-1">Total Punches Logged</div>
           <div className="text-2xl font-bold text-slate-800">{totalRecords}</div>
-          <span className="text-[11px] text-slate-400">In selected period</span>
+          <span className="text-[11px] text-slate-400">In {selectedMonthName || 'selected month'}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
@@ -395,12 +544,7 @@ export default function AttendanceReports() {
             <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center space-x-2">
               <Award className="w-5 h-5 text-amber-600" />
               <span>
-                Monthly Payroll & Full Attendance Bonus Tracker
-                {filters?.startDate && (
-                  <span className="text-amber-700 font-extrabold ml-1.5">
-                    ({new Date(filters.startDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })})
-                  </span>
-                )}
+                Monthly Attendance & Salary Report — {selectedMonthName}
               </span>
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
@@ -409,17 +553,39 @@ export default function AttendanceReports() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {/* Download Monthly Excel (.xlsx) */}
+            <button
+              onClick={handleDownloadMonthlyExcel}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-xs transition-colors"
+              title="Download 20-Column Monthly Attendance & Salary Excel (.xlsx) Report"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Download Excel (.xlsx)</span>
+            </button>
+
+            {/* Download Monthly CSV (.csv) */}
+            <button
+              onClick={handleDownloadMonthlyCSV}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold text-xs shadow-xs transition-colors"
+              title="Download 20-Column Monthly Attendance & Salary CSV Report"
+            >
+              <Download className="w-3.5 h-3.5 text-teal-200" />
+              <span>Download CSV</span>
+            </button>
+
+            {/* Download Payroll PDF */}
             <button
               onClick={handleDownloadPayrollPDF}
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors"
               title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
             >
               <FileDown className="w-3.5 h-3.5" />
-              <span>Download Payroll PDF</span>
+              <span>Payroll PDF</span>
             </button>
+
             <span className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded-xl font-bold text-xs border border-amber-300 flex items-center space-x-1.5">
               <Award className="w-4 h-4 text-amber-700" />
-              <span>{fullPresentCount} Qualified for +2 Days Salary</span>
+              <span>{fullPresentCount} Qualified (+2 Days)</span>
             </span>
           </div>
         </div>
@@ -515,6 +681,12 @@ export default function AttendanceReports() {
                             <span className="text-blue-600 font-semibold">{p.halfday} Half-Day</span>
                           </>
                         )}
+                        {p.paidLeaveDays > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-purple-700 font-semibold">{p.paidLeaveDays} Leave/OD</span>
+                          </>
+                        )}
                       </div>
                       {p.late > 0 ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
@@ -529,7 +701,7 @@ export default function AttendanceReports() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-mono font-medium text-slate-700">
-                      {p.otMinutes > 0 ? `${p.otMinutes} mins` : '0 mins'}
+                      {p.otHours > 0 ? `${p.otHours} hrs` : (p.otMinutes > 0 ? `${p.otMinutes}m` : '0 hrs')}
                     </div>
                     {p.otPay > 0 && (
                       <span className="text-[10px] text-amber-700 font-bold block">
@@ -551,10 +723,15 @@ export default function AttendanceReports() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="font-mono font-black text-sm text-[#8b0000]">
-                      ₹{p.netTotalPayout.toLocaleString('en-IN')}
+                      ₹{p.finalPayableSalary.toLocaleString('en-IN')}
                     </div>
+                    {p.deductions > 0 && (
+                      <span className="text-[10px] text-rose-600 font-semibold block">
+                        -₹{p.deductions.toLocaleString('en-IN')} (LOP)
+                      </span>
+                    )}
                     <span className="text-[10px] text-slate-500 font-bold block">
-                      Net Month Salary ({p.isFullPresentEligible ? 'Base + Bonus + OT' : 'Base - LOP + OT'})
+                      Net Payout ({p.isFullPresentEligible ? 'Base + Bonus + OT' : 'Base - LOP + OT'})
                     </span>
                   </td>
                   <td className="px-3 py-3 text-center">
