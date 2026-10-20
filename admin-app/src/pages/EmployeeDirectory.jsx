@@ -88,6 +88,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
   const [previewDoc, setPreviewDoc] = useState(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const [formData, setFormData] = useState({
     emp_id: '',
@@ -176,17 +177,13 @@ export default function EmployeeDirectory({ setActiveTab }) {
       }
 
       // Server data is authoritative
-      // Strict deduplication by emp_id AND normalized name to ensure strictly unique staff
+      // Deduplicate by unique emp_id and database id
       const seenIds = new Set();
-      const seenNames = new Set();
       const uniqueEmployees = [];
       for (const emp of mergedData) {
         const idKey = (emp.emp_id || emp.id || '').toString().trim().toUpperCase();
-        const nameKey = (emp.name || '').toString().trim().toLowerCase().replace(/[^a-z0-9]/g, '');
         if (idKey && seenIds.has(idKey)) continue;
-        if (nameKey && seenNames.has(nameKey)) continue;
         if (idKey) seenIds.add(idKey);
-        if (nameKey) seenNames.add(nameKey);
         uniqueEmployees.push(emp);
       }
 
@@ -200,6 +197,12 @@ export default function EmployeeDirectory({ setActiveTab }) {
           }
         }
         localStorage.setItem('velavan_employee_details_cache', JSON.stringify(currentCache));
+
+        // Also keep master database backup employees in sync so disaster recovery preserves updates
+        const bStr = localStorage.getItem('velavan_master_database_backup');
+        const b = bStr ? JSON.parse(bStr) : { employees: [], attendance: [] };
+        b.employees = uniqueEmployees;
+        localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
       } catch (e) {}
     } catch (err) {
       console.error('Error loading employees:', err);
@@ -444,6 +447,8 @@ export default function EmployeeDirectory({ setActiveTab }) {
       }
 
       setModalOpen(false);
+      setSuccessMsg(`Employee ${formData.name.trim()} (${newEmpId}) updated successfully and saved permanently to database!`);
+      setTimeout(() => setSuccessMsg(''), 5000);
       await loadEmployees();
     } catch (err) {
       console.error('Failed to save employee:', err);
@@ -552,6 +557,22 @@ export default function EmployeeDirectory({ setActiveTab }) {
           </button>
         </div>
       </div>
+
+      {/* Success Notification Banner */}
+      {successMsg && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between text-xs shadow-xs animate-fadeIn">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-bold">{successMsg}</span>
+          </div>
+          <button
+            onClick={() => setSuccessMsg('')}
+            className="text-emerald-700 hover:text-emerald-900 font-bold ml-3 text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filters, Search & View Switcher */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
@@ -1237,11 +1258,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      Aadhaar Number <span className="text-rose-500">*</span>
+                      Aadhaar Number <span className="text-slate-400 font-normal">(12 digits)</span>
                     </label>
                     <input
                       type="text"
-                      required
                       placeholder="XXXX XXXX XXXX"
                       value={formData.aadhaar_number}
                       onChange={(e) => setFormData({ ...formData, aadhaar_number: e.target.value })}
@@ -1251,11 +1271,10 @@ export default function EmployeeDirectory({ setActiveTab }) {
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      Residential Address <span className="text-rose-500">*</span>
+                      Residential Address <span className="text-slate-400 font-normal">(Optional)</span>
                     </label>
                     <textarea
                       rows={2}
-                      required
                       placeholder="Door No, Street Name, City, PIN"
                       value={formData.address}
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}

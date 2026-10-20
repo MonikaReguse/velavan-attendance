@@ -115,8 +115,8 @@ export default function App() {
           const serverEmpMap = new Map(serverEmps.map(e => [e.emp_id, e]));
           const existingCache = JSON.parse(localStorage.getItem('velavan_employee_details_cache') || '{}');
 
-          // Check if any local employees are missing from server (e.g. offline created)
-          const localOnlyEmps = localEmps.filter(e => e.emp_id && !serverEmpMap.has(e.emp_id) && !deletedKeys.has(e.emp_id));
+          // Check if any local employees are missing from server (only if explicitly created offline)
+          const localOnlyEmps = localEmps.filter(e => e.emp_id && !serverEmpMap.has(e.emp_id) && !deletedKeys.has(e.emp_id) && e.is_locally_created === true);
           if (localOnlyEmps.length > 0) {
             console.log(`[Disaster Recovery] Syncing ${localOnlyEmps.length} locally created employees to server...`);
             await api.restoreBackup({ employees: localOnlyEmps }).catch(console.error);
@@ -126,15 +126,20 @@ export default function App() {
             }
           }
 
-          // Merge fields safely without wiping user uploaded avatars or custom fields
+          // Server data is authoritative for all fields; merge safely without wiping user uploaded avatars or custom fields
           const mergedEmps = serverEmps.map(sEmp => {
             const lEmp = localEmps.find(e => e.emp_id === sEmp.emp_id) || existingCache[sEmp.emp_id] || {};
             return {
               ...lEmp,
               ...sEmp,
+              name: sEmp.name || lEmp.name || '',
+              role: sEmp.role || lEmp.role || '',
+              department: sEmp.department || lEmp.department || 'Digital Marketing',
+              phone: sEmp.phone || lEmp.phone || '',
+              salary: (sEmp.salary !== undefined && sEmp.salary !== null && sEmp.salary !== '') ? sEmp.salary : (lEmp.salary || ''),
               avatar: sEmp.avatar || lEmp.avatar || existingCache[sEmp.emp_id]?.avatar,
               doc_photo: sEmp.doc_photo || lEmp.doc_photo || existingCache[sEmp.emp_id]?.doc_photo,
-              salary: sEmp.salary || lEmp.salary,
+              has_face_enrolled: sEmp.has_face_enrolled !== undefined ? sEmp.has_face_enrolled : (sEmp.face_descriptor ? 1 : (lEmp.has_face_enrolled || 0))
             };
           });
 

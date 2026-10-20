@@ -120,20 +120,6 @@ function loadDbSnapshot() {
 // Auto-check on server startup
 loadDbSnapshot();
 
-// Guarantee staff department normalization
-try {
-  db.prepare("UPDATE employees SET department = 'Digital Marketing' WHERE department = 'Operations' OR department = '' OR department IS NULL").run();
-} catch (e) {}
-
-// Sync attendance punch_photo with verified employee avatar so photos are never mismatched
-try {
-  const emps = db.prepare('SELECT emp_id, avatar FROM employees WHERE avatar IS NOT NULL AND avatar != ""').all();
-  const updateAttPhoto = db.prepare('UPDATE attendance SET punch_photo = ? WHERE emp_id = ?');
-  for (const emp of emps) {
-    updateAttPhoto.run(emp.avatar, emp.emp_id);
-  }
-} catch (e) {}
-
 // Helper: Get settings as object
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -862,6 +848,21 @@ app.put('/api/employees/:id', (req, res) => {
     const val = (v, fallback) => (v !== undefined ? v : fallback);
     const updatedFaceEnrolledAt = (face_descriptor && face_descriptor !== '') ? new Date().toISOString() : target.face_enrolled_at;
 
+    // Safely handle email uniqueness
+    let finalEmail = target.email;
+    if (email !== undefined) {
+      const cleanEmail = email && typeof email === 'string' ? email.trim() : '';
+      if (cleanEmail && !cleanEmail.endsWith('@noemail.internal')) {
+        const existingEmail = db.prepare('SELECT id, name, emp_id FROM employees WHERE email = ? AND id != ?').get(cleanEmail, internalId);
+        if (existingEmail) {
+          return res.status(400).json({ error: `Email ${cleanEmail} is already assigned to another employee (${existingEmail.name} - ${existingEmail.emp_id}).` });
+        }
+        finalEmail = cleanEmail;
+      } else {
+        finalEmail = `${newEmpId.toLowerCase()}@noemail.internal`;
+      }
+    }
+
     db.prepare(`
       UPDATE employees 
       SET emp_id = ?,
@@ -906,7 +907,7 @@ app.put('/api/employees/:id', (req, res) => {
     `).run(
       newEmpId,
       val(name, target.name),
-      val(email, target.email),
+      finalEmail,
       val(phone, target.phone),
       val(department, target.department),
       val(role, target.role),
@@ -955,12 +956,16 @@ app.put('/api/employees/:id', (req, res) => {
       }
     }
 
-    const updatedEmp = db.prepare('SELECT * FROM employees WHERE id = ?').get(internalId);
-    if (updatedEmp && updatedEmp.avatar) {
-      try {
-        db.prepare('UPDATE attendance SET punch_photo = ? WHERE emp_id = ?').run(updatedEmp.avatar, updatedEmp.emp_id);
-      } catch (photoErr) {}
+    const updatedEmp = db.prepare(`
+      SELECT 
+        *,
+        CASE WHEN face_descriptor IS NOT NULL AND face_descriptor != '' THEN 1 ELSE 0 END as has_face_enrolled
+      FROM employees WHERE id = ?
+    `).get(internalId);
+    if (updatedEmp && updatedEmp.email && updatedEmp.email.endsWith('@noemail.internal')) {
+      updatedEmp.email = '';
     }
+
     saveDbSnapshot();
     res.json({ success: true, employee: updatedEmp });
   } catch (err) {
@@ -1920,15 +1925,25 @@ app.get('/api/reports/payroll-export', (req, res) => {
 // Full Cloud Database Backup Export
 app.get('/api/backup', (req, res) => {
   try {
-    const employees = db.prepare('SELECT * FROM employees').all();
+    const employees = db.prepare(`
+      SELECT 
+        *,
+        CASE WHEN face_descriptor IS NOT NULL AND face_descriptor != '' THEN 1 ELSE 0 END as has_face_enrolled
+      FROM employees
+      ORDER BY name ASC
+    `).all();
+    const formattedEmployees = employees.map(r => ({
+      ...r,
+      email: (r.email && !r.email.endsWith('@noemail.internal')) ? r.email : ''
+    }));
     const attendance = db.prepare('SELECT * FROM attendance').all();
     const settings = db.prepare('SELECT * FROM settings').all();
     const leave_requests = db.prepare('SELECT * FROM leave_requests').all();
     const payload = {
       timestamp: new Date().toISOString(),
       organization: 'Velavan Properties',
-      employeeCount: employees.length,
-      employees,
+      employeeCount: formattedEmployees.length,
+      employees: formattedEmployees,
       attendance,
       settings,
       leave_requests,
