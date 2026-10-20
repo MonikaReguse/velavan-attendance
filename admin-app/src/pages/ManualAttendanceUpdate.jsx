@@ -510,9 +510,13 @@ export default function ManualAttendanceUpdate() {
         });
       }
     } catch (err) {
+      let friendlyMsg = err.message || 'Error communicating with attendance server';
+      if (friendlyMsg.includes('Failed to fetch') || friendlyMsg.includes('NetworkError')) {
+        friendlyMsg = 'Cloud server was warming up from idle mode. Please click "Save / Update Attendance Record" again — your entered data is completely safe.';
+      }
       setFeedback({ 
         type: 'error', 
-        message: `❌ Connection error: ${err.message || 'Error communicating with attendance server'}. Existing records remain safe.` 
+        message: `❌ ${friendlyMsg}` 
       });
     } finally {
       setSaving(false);
@@ -642,14 +646,14 @@ export default function ManualAttendanceUpdate() {
               <div className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-[#8b0000]" />
                 <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                  {editingId ? `Editing Attendance Record #${editingId}` : 'Mark Attendance (New Record)'}
+                  {(editingId || existingRecord) ? `Edit Attendance Record #${editingId || existingRecord.id}` : 'Mark Attendance (New Record)'}
                 </h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                  editingId ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
+                  (editingId || existingRecord) ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
                 }`}>
-                  {editingId ? `Edit Mode: Record #${editingId}` : 'New Entry Mode'}
+                  {(editingId || existingRecord) ? `Edit Mode: Record #${editingId || existingRecord.id}` : 'New Entry Mode'}
                 </span>
               </div>
             </div>
@@ -1189,7 +1193,7 @@ export default function ManualAttendanceUpdate() {
                 ) : (
                   <>
                     <Save className="w-4 h-4" />
-                    <span>{editingId ? 'Update Attendance Record' : 'Save Attendance Record'}</span>
+                    <span>{(editingId || existingRecord) ? 'Update Attendance Record' : 'Save Attendance Record'}</span>
                   </>
                 )}
               </button>

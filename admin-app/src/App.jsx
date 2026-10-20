@@ -121,6 +121,12 @@ export default function App() {
   }, [adminUser]);
 
   useEffect(() => {
+    // Keep-Alive Warmup Ping: Prevents Render free tier from spinning down while app is active
+    api.getHealth().catch(() => {});
+    const warmPingInterval = setInterval(() => {
+      api.getHealth().catch(() => {});
+    }, 3 * 60 * 1000);
+
     api.getSettings().then(s => {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);

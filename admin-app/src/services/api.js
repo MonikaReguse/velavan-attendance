@@ -29,115 +29,134 @@ const handleResponse = async (res) => {
   throw new Error('Received non-JSON response from server. Server may be starting up.');
 };
 
+// Automatic retry wrapper for resilient cloud connections (handles Render cold-starts & transient drops)
+const fetchWithRetry = async (url, options = {}, retries = 2, delayMs = 1500) => {
+  try {
+    const res = await fetch(url, options);
+    return await handleResponse(res);
+  } catch (err) {
+    const isNetworkError =
+      err.name === 'TypeError' ||
+      err.message?.includes('Failed to fetch') ||
+      err.message?.includes('NetworkError') ||
+      err.message?.includes('Load failed') ||
+      err.message?.includes('Server may be starting up');
+
+    if (retries > 0 && isNetworkError) {
+      console.warn(`[API Retry] Retrying request to ${url} in ${delayMs}ms due to: ${err.message}`);
+      await new Promise(r => setTimeout(r, delayMs));
+      return fetchWithRetry(url, options, retries - 1, Math.min(delayMs * 1.5, 4000));
+    }
+    throw err;
+  }
+};
+
 export const api = {
   // Health
-  getHealth: () => fetch(`${API_BASE}/health`).then(handleResponse),
+  getHealth: () => fetchWithRetry(`${API_BASE}/health`, {}, 1, 1000),
 
   // Admin Auth
   adminLogin: (username, password) =>
-    fetch(`${API_BASE}/auth/admin-login`, {
+    fetchWithRetry(`${API_BASE}/auth/admin-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
-    }).then(handleResponse),
+    }, 2, 1000),
 
   // Settings
-  getSettings: () => fetch(`${API_BASE}/settings`).then(handleResponse),
+  getSettings: () => fetchWithRetry(`${API_BASE}/settings`, {}, 2, 1000),
   updateSettings: (data) =>
-    fetch(`${API_BASE}/settings`, {
+    fetchWithRetry(`${API_BASE}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(handleResponse),
+    }, 2, 1000),
 
   // Employees
-  getEmployees: () => fetch(`${API_BASE}/employees`).then(handleResponse),
+  getEmployees: () => fetchWithRetry(`${API_BASE}/employees`, {}, 2, 1200),
   getNextEmployeeId: (designation = '') =>
-    fetch(`${API_BASE}/employees/next-id?designation=${encodeURIComponent(designation)}`).then(handleResponse),
+    fetchWithRetry(`${API_BASE}/employees/next-id?designation=${encodeURIComponent(designation)}`, {}, 2, 1000),
   createEmployee: async (data) => {
-    const res = await fetch(`${API_BASE}/employees`, {
+    return fetchWithRetry(`${API_BASE}/employees`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    });
-    return handleResponse(res);
+    }, 2, 1500);
   },
   updateEmployee: async (id, data) => {
-    const res = await fetch(`${API_BASE}/employees/${id}`, {
+    return fetchWithRetry(`${API_BASE}/employees/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    });
-    return handleResponse(res);
+    }, 2, 1500);
   },
   deleteEmployee: async (id) => {
-    const res = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE' });
-    return handleResponse(res);
+    return fetchWithRetry(`${API_BASE}/employees/${id}`, { method: 'DELETE' }, 2, 1000);
   },
   uploadDocument: (base64, filename, docType) =>
-    fetch(`${API_BASE}/upload-document`, {
+    fetchWithRetry(`${API_BASE}/upload-document`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ base64, filename, docType }),
-    }).then(handleResponse),
+    }, 2, 1500),
 
   // Face biometrics
-  getFaceDescriptors: () => fetch(`${API_BASE}/face-descriptors`).then(handleResponse),
+  getFaceDescriptors: () => fetchWithRetry(`${API_BASE}/face-descriptors`, {}, 2, 1200),
   saveFaceDescriptor: (id, descriptor, snapshotBase64) =>
-    fetch(`${API_BASE}/employees/${id}/face-descriptor`, {
+    fetchWithRetry(`${API_BASE}/employees/${id}/face-descriptor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ descriptor, snapshotBase64 }),
-    }).then(handleResponse),
+    }, 2, 1500),
   deleteFaceDescriptor: (id) =>
-    fetch(`${API_BASE}/employees/${id}/face-descriptor`, { method: 'DELETE' }).then(handleResponse),
+    fetchWithRetry(`${API_BASE}/employees/${id}/face-descriptor`, { method: 'DELETE' }, 2, 1000),
 
   // Attendance
   punchAttendance: (data) =>
-    fetch(`${API_BASE}/attendance/punch`, {
+    fetchWithRetry(`${API_BASE}/attendance/punch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(handleResponse),
-  getTodayAttendance: () => fetch(`${API_BASE}/attendance/today`).then(handleResponse),
-  getTodaySummary: () => fetch(`${API_BASE}/attendance/today-summary`).then(handleResponse),
+    }, 2, 1000),
+  getTodayAttendance: () => fetchWithRetry(`${API_BASE}/attendance/today`, {}, 2, 1000),
+  getTodaySummary: () => fetchWithRetry(`${API_BASE}/attendance/today-summary`, {}, 2, 1000),
   getAttendanceHistory: (filters = {}) => {
     const params = new URLSearchParams(filters).toString();
-    return fetch(`${API_BASE}/attendance/history?${params}`).then(handleResponse);
+    return fetchWithRetry(`${API_BASE}/attendance/history?${params}`, {}, 2, 1200);
   },
   getAttendanceRecord: (emp_id, date) =>
-    fetch(`${API_BASE}/attendance/record?emp_id=${encodeURIComponent(emp_id)}&date=${encodeURIComponent(date)}`).then(handleResponse),
+    fetchWithRetry(`${API_BASE}/attendance/record?emp_id=${encodeURIComponent(emp_id)}&date=${encodeURIComponent(date)}`, {}, 2, 1000),
   recordManualAttendance: (data) =>
-    fetch(`${API_BASE}/attendance/manual`, {
+    fetchWithRetry(`${API_BASE}/attendance/manual`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(handleResponse),
+    }, 3, 1500),
   updateAttendance: (id, data) =>
-    fetch(`${API_BASE}/attendance/${id}`, {
+    fetchWithRetry(`${API_BASE}/attendance/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }).then(handleResponse),
+    }, 2, 1500),
   deleteAttendance: (id, emp_id, date) => {
     let query = '';
     if (emp_id && date) {
       query = `?emp_id=${encodeURIComponent(emp_id)}&date=${encodeURIComponent(date)}`;
     }
-    return fetch(`${API_BASE}/attendance/${id || 0}${query}`, { method: 'DELETE' }).then(handleResponse);
+    return fetchWithRetry(`${API_BASE}/attendance/${id || 0}${query}`, { method: 'DELETE' }, 2, 1000);
   },
 
   // Leaves
   getLeaves: (emp_id) => {
     const q = emp_id ? `?emp_id=${emp_id}` : '';
-    return fetch(`${API_BASE}/leaves${q}`).then(handleResponse);
+    return fetchWithRetry(`${API_BASE}/leaves${q}`, {}, 2, 1000);
   },
   updateLeaveStatus: (id, status, admin_notes) =>
-    fetch(`${API_BASE}/leaves/${id}/status`, {
+    fetchWithRetry(`${API_BASE}/leaves/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, admin_notes }),
-    }).then(handleResponse),
+    }, 2, 1000),
 
   // Export & Database Backup
   getExportUrl: (filters = {}) => {
@@ -148,11 +167,11 @@ export const api = {
     const params = new URLSearchParams(filters).toString();
     return `${API_BASE}/reports/payroll-export?${params}`;
   },
-  getBackup: () => fetch(`${API_BASE}/backup`).then(handleResponse),
+  getBackup: () => fetchWithRetry(`${API_BASE}/backup`, {}, 2, 1500),
   restoreBackup: (backupData) =>
-    fetch(`${API_BASE}/backup/restore`, {
+    fetchWithRetry(`${API_BASE}/backup/restore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(backupData),
-    }).then(handleResponse)
+    }, 2, 2000)
 };
