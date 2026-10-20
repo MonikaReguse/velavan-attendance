@@ -390,6 +390,8 @@ export default function ManualAttendanceUpdate() {
           employee_name: currentEmployee?.name || selectedEmpId,
           department: currentEmployee?.department,
           designation: currentEmployee?.role || currentEmployee?.designation,
+          punch_photo: res.attendance?.punch_photo || existingRecord?.punch_photo || undefined,
+          method: res.attendance?.method || existingRecord?.method || 'manual',
           total_hours: calculatedStats.totalHours,
           ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0
         };
@@ -421,10 +423,16 @@ export default function ManualAttendanceUpdate() {
           msg = 'Employee record was refreshed in database. Please click "Save Attendance Record" again.';
           loadData();
         }
-        setFeedback({ type: 'error', message: msg });
+        setFeedback({ 
+          type: 'error', 
+          message: `❌ ${msg}. Existing attendance records remain completely safe and untouched.` 
+        });
       }
     } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Error communicating with attendance server' });
+      setFeedback({ 
+        type: 'error', 
+        message: `❌ Connection error: ${err.message || 'Error communicating with attendance server'}. Existing records remain safe.` 
+      });
     } finally {
       setSaving(false);
     }

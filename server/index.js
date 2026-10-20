@@ -50,7 +50,7 @@ function loadDbSnapshot() {
     if (!fs.existsSync(snapshotPath)) return;
 
     const data = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
-    if (!data || !Array.isArray(data.employees) || data.employees.length === 0) return;
+    if (!data) return;
 
     // Check permanently deleted employee IDs so deleted staff are NEVER resurrected by snapshot
     let deletedEmpIds = new Set();
@@ -62,49 +62,56 @@ function loadDbSnapshot() {
       }
     } catch {}
 
-    const currentEmps = db.prepare('SELECT emp_id, name FROM employees').all();
-    const currentEmpKeys = new Set(currentEmps.map(e => e.emp_id));
+    const empValidCols = new Set(db.prepare('PRAGMA table_info(employees)').all().map(c => c.name));
+    const attValidCols = new Set(db.prepare('PRAGMA table_info(attendance)').all().map(c => c.name));
+    const leaveValidCols = new Set(db.prepare('PRAGMA table_info(leave_requests)').all().map(c => c.name));
 
-    // Find any snapshot employees not present in the current database table and NOT deleted
-    const missingEmployees = data.employees.filter(e => e.emp_id && !currentEmpKeys.has(e.emp_id) && !deletedEmpIds.has(e.emp_id));
-
-    // Strictly non-destructive: Only restore from snapshot if the database is completely empty (cold initial setup)
-    // Never overwrite or replace existing employees so user edits are 100% permanent!
-    if (currentEmps.length === 0 && Array.isArray(data.employees) && data.employees.length > 0) {
-      console.log(`[Snapshot Auto-Restore] Cold database detected. Initializing with ${data.employees.length} employees...`);
-      const restoreTx = db.transaction(() => {
+    const restoreTx = db.transaction(() => {
+      // 1. Restore missing employees non-destructively
+      if (Array.isArray(data.employees) && data.employees.length > 0) {
         for (const emp of data.employees) {
-          if (deletedEmpIds.has(emp.emp_id)) continue;
-          const keys = Object.keys(emp).filter(k => k !== 'id');
-          const placeholders = keys.map(() => '?').join(', ');
-          const values = keys.map(k => emp[k]);
-          db.prepare(`INSERT OR IGNORE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
-        }
-        if (Array.isArray(data.attendance)) {
-          for (const att of data.attendance) {
-            if (deletedEmpIds.has(att.emp_id)) continue;
-            const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
-            if (!exists) {
-              const keys = Object.keys(att).filter(k => k !== 'id');
-              const placeholders = keys.map(() => '?').join(', ');
-              const values = keys.map(k => att[k]);
-              db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
-            }
+          if (!emp || !emp.emp_id || deletedEmpIds.has(emp.emp_id)) continue;
+          const exists = db.prepare('SELECT id FROM employees WHERE emp_id = ?').get(emp.emp_id);
+          if (!exists) {
+            const keys = Object.keys(emp).filter(k => k !== 'id' && empValidCols.has(k));
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => emp[k]);
+            db.prepare(`INSERT OR IGNORE INTO employees (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
           }
         }
-        if (Array.isArray(data.leave_requests)) {
-          for (const l of data.leave_requests) {
-            if (deletedEmpIds.has(l.emp_id)) continue;
-            const keys = Object.keys(l).filter(k => k !== 'id');
+      }
+
+      // 2. Restore missing attendance records non-destructively (CRITICAL for disaster recovery)
+      if (Array.isArray(data.attendance) && data.attendance.length > 0) {
+        for (const att of data.attendance) {
+          if (!att || !att.emp_id || !att.date || deletedEmpIds.has(att.emp_id)) continue;
+          const exists = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(att.emp_id, att.date);
+          if (!exists) {
+            const keys = Object.keys(att).filter(k => k !== 'id' && attValidCols.has(k));
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => att[k]);
+            db.prepare(`INSERT INTO attendance (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
+          }
+        }
+      }
+
+      // 3. Restore missing leaves
+      if (Array.isArray(data.leave_requests) && data.leave_requests.length > 0) {
+        for (const l of data.leave_requests) {
+          if (!l || !l.emp_id || deletedEmpIds.has(l.emp_id)) continue;
+          const exists = db.prepare('SELECT id FROM leave_requests WHERE emp_id = ? AND start_date = ?').get(l.emp_id, l.start_date);
+          if (!exists) {
+            const keys = Object.keys(l).filter(k => k !== 'id' && leaveValidCols.has(k));
             const placeholders = keys.map(() => '?').join(', ');
             const values = keys.map(k => l[k]);
             db.prepare(`INSERT OR IGNORE INTO leave_requests (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
           }
         }
-      });
-      restoreTx();
-      console.log(`[Snapshot Auto-Restore] Successfully initialized database.`);
-    }
+      }
+    });
+
+    restoreTx();
+    console.log('[Snapshot Auto-Restore] Verified database state against snapshot.');
   } catch (err) {
     console.error('[Snapshot Auto-Restore Error]:', err.message);
   }
@@ -1482,9 +1489,12 @@ app.post('/api/attendance/manual', (req, res) => {
     if (!emp_id) {
       return res.status(400).json({ error: 'Employee ID is required.' });
     }
+    if (!date) {
+      return res.status(400).json({ error: 'Attendance date is required.' });
+    }
 
     // Auto-create basic employee entry if missing, ensuring FOREIGN KEY constraint NEVER fails
-    const emp = db.prepare('SELECT id, emp_id, name FROM employees WHERE emp_id = ?').get(emp_id);
+    const emp = db.prepare('SELECT id, emp_id, name, avatar FROM employees WHERE emp_id = ?').get(emp_id);
     if (!emp) {
       try {
         db.prepare(`
@@ -1501,65 +1511,134 @@ app.post('/api/attendance/manual', (req, res) => {
     }
 
     const settings = getSettings();
-    let totalHours = 0;
-    let otHours = 0;
-    let finalOtMinutes = 0;
+    let resultId = null;
+    let isUpdate = false;
 
-    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
-    if (hasValidTimes) {
-      totalHours = calculateHours(clock_in, clock_out);
-      const ot = calculateOT(
-        clock_out,
-        clock_in,
-        settings.office_start_time || '09:30',
-        settings.office_end_time || '18:00',
-        parseInt(settings.ot_buffer_minutes || '20', 10)
-      );
-      otHours = ot.otHours;
-      finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
-    }
-
-    const cleanIn = (clock_in && String(clock_in).trim() && String(clock_in).trim() !== 'null' && String(clock_in).trim() !== 'undefined') ? String(clock_in).trim() : '--';
-    const cleanOut = (clock_out && String(clock_out).trim() && String(clock_out).trim() !== 'null' && String(clock_out).trim() !== 'undefined') ? String(clock_out).trim() : '--';
-    const cIn = (status === 'absent' || status === 'weekly_off') ? '--' : cleanIn;
-    const cOut = (status === 'absent' || status === 'weekly_off') ? '--' : cleanOut;
-
-    // Resolve target record ID safely without hijacking or clearing other dates
-    let targetRecordId = id;
-    if (targetRecordId) {
-      const rec = db.prepare('SELECT id, emp_id, date FROM attendance WHERE id = ?').get(targetRecordId);
-      if (rec && (rec.emp_id !== emp_id || rec.date !== date)) {
-        // Date or employee changed: do NOT overwrite the old date's record!
-        // Instead, check if target (emp_id, date) already exists or insert new
-        const existingOnNewDate = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
-        targetRecordId = existingOnNewDate ? existingOnNewDate.id : null;
+    // Wrap in a safe transaction: atomicity guarantees zero data loss on failure!
+    const manualTx = db.transaction(() => {
+      // 1. Resolve existing record by (emp_id, date) first, or by id
+      let existing = db.prepare('SELECT * FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
+      if (!existing && id && id !== '0') {
+        const byId = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
+        if (byId) {
+          existing = byId;
+        }
       }
-    } else {
-      const existing = db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
+
+      // 2. Determine clean clock_in & clock_out
+      // PRESERVE FACELOCK TIME: If employee clocked in via FaceLock and new clock_in is empty/'--', keep original FaceLock clock_in!
+      let finalClockIn = '--';
+      if (status !== 'absent' && status !== 'weekly_off') {
+        if (clock_in && clock_in !== '--' && String(clock_in).trim() !== '' && String(clock_in).trim() !== 'null') {
+          finalClockIn = String(clock_in).trim();
+        } else if (existing && existing.clock_in && existing.clock_in !== '--') {
+          finalClockIn = existing.clock_in;
+        } else {
+          finalClockIn = '09:30:00';
+        }
+      }
+
+      let finalClockOut = '--';
+      if (status !== 'absent' && status !== 'weekly_off') {
+        if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
+          finalClockOut = String(clock_out).trim();
+        } else if (existing && existing.clock_out && existing.clock_out !== '--') {
+          finalClockOut = existing.clock_out;
+        }
+      }
+
+      let totalHours = 0;
+      let otHours = 0;
+      let finalOtMinutes = 0;
+
+      const hasValidTimes = finalClockIn !== '--' && finalClockOut !== '--' && status !== 'absent' && status !== 'weekly_off';
+      if (hasValidTimes) {
+        totalHours = calculateHours(finalClockIn, finalClockOut);
+        const ot = calculateOT(
+          finalClockOut,
+          finalClockIn,
+          settings.office_start_time || '09:30',
+          settings.office_end_time || '18:00',
+          parseInt(settings.ot_buffer_minutes || '20', 10)
+        );
+        otHours = ot.otHours;
+        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+      }
+
+      // PRESERVE BIOMETRIC PUNCH PHOTO & METHOD: If existing record has biometric FaceLock photo, NEVER erase or wipe it!
+      const photoToKeep = (existing && existing.punch_photo) ? existing.punch_photo : (emp?.avatar || null);
+      const methodToKeep = (existing && existing.method) ? existing.method : 'manual';
+      const finalNotes = (notes && notes.trim()) ? notes.trim() : (existing?.notes || 'HR manual adjustment');
+
       if (existing) {
-        targetRecordId = existing.id;
+        // UPDATE existing record safely without creating duplicates
+        db.prepare(`
+          UPDATE attendance
+          SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?
+          WHERE id = ?
+        `).run(
+          emp_id,
+          date,
+          finalClockIn,
+          finalClockOut,
+          totalHours,
+          otHours,
+          finalOtMinutes,
+          status,
+          finalNotes,
+          methodToKeep,
+          photoToKeep,
+          existing.id
+        );
+        resultId = existing.id;
+        isUpdate = true;
+      } else {
+        // INSERT new record safely
+        const ins = db.prepare(`
+          INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+        `).run(
+          emp_id,
+          date,
+          finalClockIn,
+          finalClockOut,
+          totalHours,
+          otHours,
+          finalOtMinutes,
+          status,
+          finalNotes,
+          photoToKeep
+        );
+        resultId = ins.lastInsertRowid;
+        isUpdate = false;
       }
-    }
+    });
 
-    if (targetRecordId) {
-      db.prepare(`
-        UPDATE attendance
-        SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
-        WHERE id = ?
-      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', targetRecordId);
-      saveDbSnapshot();
-      return res.json({ success: true, updated: true, id: targetRecordId });
-    } else {
-      const empAvatar = emp?.avatar || null;
-      const result = db.prepare(`
-        INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
-      `).run(emp_id, date, cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', empAvatar);
-      saveDbSnapshot();
-      res.json({ success: true, created: true, id: result.lastInsertRowid });
-    }
+    manualTx();
+    saveDbSnapshot();
+
+    const savedRecord = db.prepare(`
+      SELECT 
+        a.*, 
+        COALESCE(e.name, a.emp_id) as employee_name,
+        COALESCE(e.department, 'Digital Marketing') as department,
+        COALESCE(e.role, 'Staff') as role,
+        e.avatar
+      FROM attendance a
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
+      WHERE a.id = ?
+    `).get(resultId);
+
+    return res.json({ 
+      success: true, 
+      updated: isUpdate, 
+      created: !isUpdate, 
+      id: resultId,
+      attendance: savedRecord 
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[Manual Attendance Error]:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to save attendance' });
   }
 });
 
