@@ -19,7 +19,10 @@ import {
   XCircle,
   Briefcase,
   Search,
-  Filter
+  Filter,
+  PlusCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatTime } from '../services/timeUtils';
@@ -95,12 +98,15 @@ export default function ManualAttendanceUpdate() {
         api.getEmployees(),
         api.getAttendanceHistory({ limit: 50 })
       ]);
-      setEmployees(empList || []);
+      const cleanEmpList = empList || [];
+      setEmployees(cleanEmpList);
       const cleanHistory = mergeAttendanceWithLocal(historyList || []);
       setRecentLogs(cleanHistory.slice(0, 50));
 
-      if (empList && empList.length > 0 && !selectedEmpId) {
-        setSelectedEmpId(empList[0].emp_id);
+      if (cleanEmpList.length > 0 && !selectedEmpId) {
+        // Pick the first employee who does NOT have attendance for selectedDate today
+        const unmarked = cleanEmpList.find(e => !cleanHistory.some(a => a.emp_id === e.emp_id && a.date === selectedDate));
+        setSelectedEmpId(unmarked ? unmarked.emp_id : cleanEmpList[0].emp_id);
       }
     } catch (err) {
       console.error(err);
@@ -116,30 +122,106 @@ export default function ManualAttendanceUpdate() {
     return employees.find(e => e.emp_id === selectedEmpId) || null;
   }, [employees, selectedEmpId]);
 
-  // When selected employee or date changes, auto-detect existing record so manual changes are NEVER cleared!
-  useEffect(() => {
-    if (!selectedEmpId || !selectedDate) return;
+  // Set of employee IDs that have attendance marked for selectedDate
+  const markedEmpIdsForSelectedDate = useMemo(() => {
+    const all = getLocalAttendance();
+    const set = new Set();
+    all.forEach(a => {
+      if (a.date === selectedDate) set.add(a.emp_id);
+    });
+    recentLogs.forEach(a => {
+      if (a.date === selectedDate) set.add(a.emp_id);
+    });
+    return set;
+  }, [selectedDate, recentLogs]);
 
+  // Existing record specifically for the currently selected employee on selectedDate
+  const existingRecord = useMemo(() => {
+    if (!selectedEmpId || !selectedDate) return null;
     const allAttendance = getLocalAttendance();
-    const existing = allAttendance.find(a => a.emp_id === selectedEmpId && a.date === selectedDate)
-      || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === selectedDate);
+    return allAttendance.find(a => a.emp_id === selectedEmpId && a.date === selectedDate)
+      || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === selectedDate)
+      || null;
+  }, [selectedEmpId, selectedDate, recentLogs]);
+
+  // Handle switching employee in dropdown - NEVER keeps editingId of another employee!
+  const handleSelectEmployee = (empId) => {
+    setSelectedEmpId(empId);
+    setEditingId(null); // Clear editing mode so other employee records are NEVER modified!
+
+    const all = getLocalAttendance();
+    const existing = all.find(a => a.emp_id === empId && a.date === selectedDate)
+      || recentLogs.find(a => a.emp_id === empId && a.date === selectedDate);
 
     if (existing) {
-      setEditingId(existing.id || null);
-      setClockIn((existing.clock_in && existing.clock_in !== '--') ? existing.clock_in : '');
-      setClockOut((existing.clock_out && existing.clock_out !== '--') ? existing.clock_out : '');
+      setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
+      setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
       setStatus(existing.status || 'present');
-      setCustomOtMinutes((existing.ot_minutes !== undefined && existing.ot_minutes !== null && Number(existing.ot_minutes) > 0) ? String(existing.ot_minutes) : '');
+      setCustomOtMinutes(existing.ot_minutes ? String(existing.ot_minutes) : '');
       setNotes(existing.notes || 'HR manual adjustment');
     } else {
-      setEditingId(null);
       setClockIn('09:30:00');
       setClockOut('18:00:00');
       setStatus('present');
       setCustomOtMinutes('');
       setNotes('HR manual attendance entry');
     }
-  }, [selectedEmpId, selectedDate]);
+    setFeedback(null);
+  };
+
+  // Handle switching date
+  const handleSelectDate = (newDate) => {
+    setSelectedDate(newDate);
+    setEditingId(null); // Clear editing mode when switching date
+
+    const all = getLocalAttendance();
+    const existing = all.find(a => a.emp_id === selectedEmpId && a.date === newDate)
+      || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === newDate);
+
+    if (existing) {
+      setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
+      setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
+      setStatus(existing.status || 'present');
+      setCustomOtMinutes(existing.ot_minutes ? String(existing.ot_minutes) : '');
+      setNotes(existing.notes || 'HR manual adjustment');
+    } else {
+      setClockIn('09:30:00');
+      setClockOut('18:00:00');
+      setStatus('present');
+      setCustomOtMinutes('');
+      setNotes('HR manual attendance entry');
+    }
+    setFeedback(null);
+  };
+
+  // Swift Navigation: Advance to next employee who needs attendance
+  const advanceToNextEmployee = () => {
+    if (!employees || employees.length === 0) return;
+    const currentIdx = employees.findIndex(e => e.emp_id === selectedEmpId);
+    const all = getLocalAttendance();
+
+    let nextEmp = null;
+    for (let i = 1; i <= employees.length; i++) {
+      const candidate = employees[(currentIdx + i) % employees.length];
+      const hasRecord = all.some(a => a.emp_id === candidate.emp_id && a.date === selectedDate);
+      if (!hasRecord) {
+        nextEmp = candidate;
+        break;
+      }
+    }
+    if (!nextEmp) {
+      nextEmp = employees[(currentIdx + 1) % employees.length];
+    }
+    handleSelectEmployee(nextEmp.emp_id);
+  };
+
+  // Swift Navigation: Go to previous employee
+  const goToPrevEmployee = () => {
+    if (!employees || employees.length === 0) return;
+    const currentIdx = employees.findIndex(e => e.emp_id === selectedEmpId);
+    const prevIdx = (currentIdx - 1 + employees.length) % employees.length;
+    handleSelectEmployee(employees[prevIdx].emp_id);
+  };
 
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
@@ -220,30 +302,43 @@ export default function ManualAttendanceUpdate() {
     }
   };
 
-  // Populate form to edit an existing record
+  // Explicitly enter Edit Mode for a specific record
   const handleEditRecord = (record) => {
+    if (!record) return;
     setEditingId(record.id);
     setSelectedEmpId(record.emp_id);
     setSelectedDate(record.date);
-    setClockIn(record.clock_in || '09:30:00');
-    setClockOut(record.clock_out || '18:00:00');
+    setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
+    setClockOut((record.clock_out && record.clock_out !== '--') ? record.clock_out : '18:00:00');
     setStatus(record.status || 'present');
-    setCustomOtMinutes(record.ot_minutes ? String(record.ot_minutes) : '');
+    setCustomOtMinutes((record.ot_minutes !== undefined && record.ot_minutes !== null && Number(record.ot_minutes) > 0) ? String(record.ot_minutes) : '');
     setNotes(record.notes || 'HR manual adjustment');
-    setFeedback(null);
+    setFeedback({
+      type: 'success',
+      message: `Loaded record #${record.id} for ${record.employee_name || record.emp_id}. Make changes and click Update.`
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Reset form to blank new entry
+  // Reset form to blank new entry mode
   const handleResetForm = () => {
     setEditingId(null);
-    setSelectedDate(new Date().toISOString().split('T')[0]);
     setClockIn('09:30:00');
     setClockOut('18:00:00');
     setStatus('present');
     setCustomOtMinutes('');
     setNotes('HR manual attendance entry');
-    setFeedback(null);
+    setFeedback({
+      type: 'success',
+      message: 'Ready for new attendance entry.'
+    });
+
+    // Auto-select first unmarked employee if available
+    const all = getLocalAttendance();
+    const unmarked = employees.find(e => !all.some(a => a.emp_id === e.emp_id && a.date === selectedDate));
+    if (unmarked) {
+      setSelectedEmpId(unmarked.emp_id);
+    }
   };
 
   // Submit Form
@@ -262,8 +357,20 @@ export default function ManualAttendanceUpdate() {
       setSaving(true);
       setFeedback(null);
 
+      // SAFETY: Only pass id if editingId matches selectedEmpId & selectedDate, or if existingRecord exists for this date
+      let targetId = undefined;
+      if (editingId) {
+        const match = recentLogs.find(l => l.id === editingId && l.emp_id === selectedEmpId && l.date === selectedDate)
+          || getLocalAttendance().find(l => l.id === editingId && l.emp_id === selectedEmpId && l.date === selectedDate);
+        if (match) {
+          targetId = editingId;
+        }
+      } else if (existingRecord) {
+        targetId = existingRecord.id;
+      }
+
       const payload = {
-        id: editingId || undefined,
+        id: targetId,
         emp_id: selectedEmpId,
         date: selectedDate,
         clock_in: (status === 'absent' || status === 'weekly_off') ? '--' : (clockIn || '--'),
@@ -276,31 +383,38 @@ export default function ManualAttendanceUpdate() {
       const res = await api.recordManualAttendance(payload);
 
       if (res.success) {
+        const finalId = res.id || targetId || undefined;
         const savedPunch = {
           ...payload,
-          id: res.id || editingId || undefined,
+          id: finalId,
           employee_name: currentEmployee?.name || selectedEmpId,
           department: currentEmployee?.department,
-          designation: currentEmployee?.designation,
+          designation: currentEmployee?.role || currentEmployee?.designation,
           total_hours: calculatedStats.totalHours,
           ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0
         };
         savePunchLocally(savedPunch);
 
-        if (res.id) {
-          setEditingId(res.id);
-        }
+        const empName = currentEmployee?.name || selectedEmpId;
+        const wasEditing = !!editingId;
+
+        // CRITICAL FIX: Always reset editingId to null! Never trap the user in edit mode!
+        setEditingId(null);
 
         setFeedback({
           type: 'success',
-          message: editingId
-            ? `Attendance successfully updated for ${currentEmployee?.name || selectedEmpId} on ${selectedDate}!`
-            : `Attendance successfully recorded for ${currentEmployee?.name || selectedEmpId} on ${selectedDate}!`
+          message: wasEditing
+            ? `Attendance successfully updated for ${empName} on ${selectedDate}!`
+            : `Attendance successfully recorded for ${empName} on ${selectedDate}!`
         });
 
+        // Refresh recent logs
         const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
         const merged = mergeAttendanceWithLocal(updatedLogs || []);
         setRecentLogs(merged.slice(0, 50));
+
+        // Advance to next unmarked employee for daily attendance flow
+        advanceToNextEmployee();
       } else {
         let msg = res.error || 'Failed to save attendance';
         if (msg.includes('FOREIGN KEY')) {
@@ -327,6 +441,9 @@ export default function ManualAttendanceUpdate() {
       const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
       const merged = mergeAttendanceWithLocal(updatedLogs || []);
       setRecentLogs(merged.slice(0, 50));
+      if (editingId === id) {
+        setEditingId(null);
+      }
     } catch (err) {
       setFeedback({ type: 'error', message: 'Error deleting record: ' + err.message });
     }
@@ -343,6 +460,8 @@ export default function ManualAttendanceUpdate() {
       (l.status && l.status.toLowerCase().includes(q))
     );
   }, [recentLogs, filterSearch]);
+
+  const isCurrentMarked = markedEmpIdsForSelectedDate.has(selectedEmpId);
 
   return (
     <div className="space-y-6 animate-in fade-in pb-12">
@@ -364,23 +483,46 @@ export default function ManualAttendanceUpdate() {
               Manual Attendance Update & Entry
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Manually mark or edit employee attendance, shift timings, overtime minutes, and on-duty permissions.
+              Mark daily attendance for staff or adjust existing timings, overtime, and leave records.
             </p>
           </div>
         </div>
 
-        {editingId && (
-          <div className="flex items-center space-x-2 bg-amber-50 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-900 font-medium">
-            <Edit3 className="w-4 h-4 text-amber-700" />
-            <span>Currently Editing Record <strong>#{editingId}</strong></span>
+        {/* Header Action Buttons */}
+        <div className="flex items-center space-x-2">
+          {editingId ? (
+            <div className="flex items-center space-x-2 bg-amber-50 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-900 font-medium">
+              <Edit3 className="w-4 h-4 text-amber-700" />
+              <span>Editing Record <strong>#{editingId}</strong></span>
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="ml-2 text-xs font-bold text-red-700 hover:underline bg-white px-2 py-0.5 rounded border border-amber-300"
+              >
+                ✕ Cancel Edit
+              </button>
+            </div>
+          ) : (
             <button
+              type="button"
               onClick={handleResetForm}
-              className="ml-2 text-xs font-bold text-red-700 hover:underline"
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs"
             >
-              Cancel Edit
+              <PlusCircle className="w-4 h-4 text-emerald-600" />
+              <span>+ New Blank Entry</span>
             </button>
-          </div>
-        )}
+          )}
+
+          <button
+            type="button"
+            onClick={loadData}
+            disabled={loading}
+            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
+            title="Refresh database records"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#8b0000]' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Feedback Banner */}
@@ -410,35 +552,65 @@ export default function ManualAttendanceUpdate() {
               <div className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-[#8b0000]" />
                 <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                  {editingId ? 'Edit Attendance Details' : 'New Manual Attendance Record'}
+                  {editingId ? `Editing Attendance Record #${editingId}` : 'Mark Attendance (New Record)'}
                 </h3>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">
-                {editingId ? 'Record ID: #' + editingId : 'New Entry'}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                  editingId ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
+                }`}>
+                  {editingId ? `Edit Mode: Record #${editingId}` : 'New Entry Mode'}
+                </span>
+              </div>
             </div>
 
             {/* 1. Employee Selector & Date */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Select Employee <span className="text-red-600">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Select Employee <span className="text-red-600">*</span>
+                  </label>
+                  {/* Quick Prev / Next navigation buttons */}
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={goToPrevEmployee}
+                      className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+                      title="Previous Employee"
+                    >
+                      ◀ Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={advanceToNextEmployee}
+                      className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+                      title="Next Employee"
+                    >
+                      Next ▶
+                    </button>
+                  </div>
+                </div>
+
                 <select
                   value={selectedEmpId}
-                  onChange={(e) => setSelectedEmpId(e.target.value)}
+                  onChange={(e) => handleSelectEmployee(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-semibold focus:outline-none focus:border-[#8b0000] focus:ring-2 focus:ring-red-100"
                   required
                 >
-                  {employees.map(emp => (
-                    <option key={emp.emp_id} value={emp.emp_id}>
-                      {emp.name} ({emp.emp_id}) • {emp.role || emp.department}
-                    </option>
-                  ))}
+                  {employees.map(emp => {
+                    const isMarked = markedEmpIdsForSelectedDate.has(emp.emp_id);
+                    return (
+                      <option key={emp.emp_id} value={emp.emp_id}>
+                        {isMarked ? '✓ ' : '○ '} {emp.name} ({emp.emp_id}) • {emp.role || emp.department} {isMarked ? '(Marked)' : '(Not Marked)'}
+                      </option>
+                    );
+                  })}
                 </select>
+
                 {currentEmployee && (
                   <span className="text-[10px] text-slate-500 mt-1 block">
-                    Dept: <strong>{currentEmployee.department}</strong> • Base Salary: <strong>{currentEmployee.salary ? `₹${Number(currentEmployee.salary).toLocaleString('en-IN')}` : 'Not Set'}</strong>
+                    Role: <strong>{currentEmployee.role || currentEmployee.designation || 'Staff'}</strong> • Dept: <strong>{currentEmployee.department}</strong>
                   </span>
                 )}
               </div>
@@ -452,22 +624,70 @@ export default function ManualAttendanceUpdate() {
                     type="date"
                     required
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
+                    onChange={(e) => handleSelectDate(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-semibold focus:outline-none focus:border-[#8b0000] focus:ring-2 focus:ring-red-100"
                   />
                 </div>
-                {editingId ? (
-                  <span className="text-[10px] text-amber-800 font-bold mt-1 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3 text-amber-600 shrink-0" />
-                    <span>Existing record #{editingId} loaded for this date. Edit and click Update.</span>
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-slate-500 mt-1 block">
-                    Select current date or any past date to adjust.
-                  </span>
-                )}
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Select date to mark daily attendance or past adjustments.
+                </span>
               </div>
             </div>
+
+            {/* Attendance Status Context Banner for currently selected employee */}
+            {isCurrentMarked ? (
+              editingId ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900">
+                  <div className="flex items-center space-x-2">
+                    <Edit3 className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>
+                      Modifying <strong>Record #{editingId}</strong> for <strong>{currentEmployee?.name}</strong> on {selectedDate}.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetForm}
+                    className="px-2.5 py-1 bg-white hover:bg-amber-100 border border-amber-300 rounded-lg text-amber-800 font-bold transition-colors text-[11px]"
+                  >
+                    Cancel & New Entry
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-blue-900">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>
+                      Attendance already recorded for <strong>{currentEmployee?.name}</strong> on {selectedDate} ({existingRecord?.status?.toUpperCase()} • {existingRecord?.clock_in || '--'} to {existingRecord?.clock_out || '--'}).
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEditRecord(existingRecord)}
+                      className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-300 text-blue-800 rounded-lg font-bold text-[11px] flex items-center space-x-1 transition-colors"
+                    >
+                      <Edit3 className="w-3 h-3 text-blue-700" />
+                      <span>Edit This Record</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={advanceToNextEmployee}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] flex items-center space-x-1 transition-colors"
+                    >
+                      <span>Next Employee</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2 text-xs text-emerald-800 font-medium">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  No record yet for <strong>{currentEmployee?.name}</strong> on {selectedDate}. Standard 09:30 AM – 06:00 PM pre-filled.
+                </span>
+              </div>
+            )}
 
             {/* 2. 1-Click Quick Shift Presets */}
             <div>
@@ -618,7 +838,7 @@ export default function ManualAttendanceUpdate() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Client site visit / Forgot biometric punch / Medical emergency approved"
+                placeholder="e.g. Regular shift / Client site visit / Management approved"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs focus:outline-none focus:border-[#8b0000]"
@@ -649,9 +869,10 @@ export default function ManualAttendanceUpdate() {
                 type="button"
                 onClick={handleResetForm}
                 className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors flex items-center space-x-1.5"
+                title="Reset form to a fresh entry"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset</span>
+                <span>New Blank Entry</span>
               </button>
             </div>
           </form>
@@ -665,9 +886,10 @@ export default function ManualAttendanceUpdate() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">Recent Attendance Records</h3>
-                <p className="text-[11px] text-slate-500">Click ✏️ Edit on any row to quickly update.</p>
+                <p className="text-[11px] text-slate-500">Click ✏️ Edit to modify any record.</p>
               </div>
               <button
+                type="button"
                 onClick={loadData}
                 className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                 title="Refresh logs"
@@ -694,6 +916,7 @@ export default function ManualAttendanceUpdate() {
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400 space-y-2">
                   <CalendarCheck className="w-8 h-8 text-slate-300" />
                   <p className="text-xs font-semibold text-slate-600">No records found</p>
+                  <p className="text-[11px] text-slate-400">Use the form on the left to record attendance.</p>
                 </div>
               ) : (
                 filteredLogs.map(item => {
@@ -708,7 +931,7 @@ export default function ManualAttendanceUpdate() {
                       key={item.id}
                       className={`p-3 rounded-2xl border transition-all ${
                         editingId === item.id 
-                          ? 'bg-red-50/50 border-[#8b0000] ring-1 ring-[#8b0000]'
+                          ? 'bg-amber-50/70 border-amber-400 ring-2 ring-amber-300'
                           : 'bg-white border-slate-100 hover:border-slate-300'
                       }`}
                     >
@@ -755,6 +978,7 @@ export default function ManualAttendanceUpdate() {
 
                         <div className="flex items-center space-x-1">
                           <button
+                            type="button"
                             onClick={() => handleEditRecord(item)}
                             className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-lg font-bold text-[10px] flex items-center space-x-1 transition-colors"
                             title="Edit this attendance record"
@@ -764,6 +988,7 @@ export default function ManualAttendanceUpdate() {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => handleDelete(item.id, item.employee_name, item.date, item.emp_id)}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
                             title="Delete this record"
