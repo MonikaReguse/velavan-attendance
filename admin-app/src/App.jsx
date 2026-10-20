@@ -15,17 +15,6 @@ import { api } from './services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal, getDeletedPunchKeys } from './services/attendanceStorage';
 
 export default function App() {
-  // Default to Full Admin Mode with complete navigation accessible
-  const [isKioskMode, setIsKioskMode] = useState(() => {
-    try {
-      const savedKiosk = localStorage.getItem('workpulse_is_kiosk');
-      if (savedKiosk !== null) return savedKiosk === 'true';
-      return false;
-    } catch {
-      return false;
-    }
-  });
-  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [adminUser, setAdminUser] = useState(() => {
     try {
       const saved = localStorage.getItem('workpulse_admin_user');
@@ -35,11 +24,29 @@ export default function App() {
     }
   });
 
+  // Default landing page is ALWAYS Office FaceLock Attendance (Kiosk Mode = true)
+  // Admin management hub is only unlocked if an authenticated admin session exists and is active
+  const [isKioskMode, setIsKioskMode] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('workpulse_admin_user');
+      const savedKiosk = localStorage.getItem('workpulse_is_kiosk');
+      if (savedUser && savedKiosk === 'false') {
+        return false;
+      }
+      return true; // Default for public landing page and visitors
+    } catch {
+      return true;
+    }
+  });
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+
   const [activeTab, setActiveTabState] = useState(() => {
     try {
-      return localStorage.getItem('workpulse_admin_tab') || 'dashboard';
+      const savedUser = localStorage.getItem('workpulse_admin_user');
+      if (!savedUser) return 'facelock-kiosk';
+      return localStorage.getItem('workpulse_admin_tab') || 'facelock-kiosk';
     } catch {
-      return 'dashboard';
+      return 'facelock-kiosk';
     }
   });
 
@@ -47,12 +54,71 @@ export default function App() {
     setActiveTabState(tab);
     try {
       localStorage.setItem('workpulse_admin_tab', tab);
+      if (tab === 'facelock-kiosk') {
+        localStorage.setItem('workpulse_is_kiosk', 'true');
+        setIsKioskMode(true);
+        if (window.location.pathname !== '/') {
+          window.history.pushState(null, '', '/');
+        }
+      } else {
+        localStorage.setItem('workpulse_is_kiosk', 'false');
+        setIsKioskMode(false);
+        if (window.location.pathname !== `/${tab}`) {
+          window.history.pushState(null, '', `/${tab}`);
+        }
+      }
     } catch (e) {}
   };
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [officeName, setOfficeName] = useState('Velavan Properties');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Route & Security Enforcement:
+  // Public visitors always land on Office FaceLock Attendance.
+  // Direct access to admin subpaths without authentication triggers login prompt and stays on FaceLock.
+  useEffect(() => {
+    const syncRoute = () => {
+      const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+      const adminTabs = [
+        'dashboard', 
+        'facelock-kiosk', 
+        'manual-attendance', 
+        'face-enrollment', 
+        'add-employee', 
+        'employees', 
+        'attendance', 
+        'reports', 
+        'settings'
+      ];
+
+      if (!adminUser) {
+        // Public visitor: ALWAYS enforce FaceLock Attendance
+        setIsKioskMode(true);
+        setActiveTabState('facelock-kiosk');
+        if (path && path !== '' && path !== 'facelock-kiosk') {
+          // If someone tried to visit an admin tab directly, prompt for admin login and return to root
+          setIsUnlockModalOpen(true);
+          window.history.replaceState(null, '', '/');
+        }
+        return;
+      }
+
+      // Authenticated admin:
+      if (path && adminTabs.includes(path)) {
+        setActiveTabState(path);
+        setIsKioskMode(path === 'facelock-kiosk');
+      } else if (!path || path === '') {
+        // If an authenticated admin visits root '/', display FaceLock Attendance terminal
+        setActiveTabState('facelock-kiosk');
+        setIsKioskMode(true);
+      }
+    };
+
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [adminUser]);
 
   useEffect(() => {
     api.getSettings().then(s => {
@@ -203,27 +269,42 @@ export default function App() {
     try {
       localStorage.setItem('workpulse_admin_user', JSON.stringify(user));
       localStorage.setItem('workpulse_is_kiosk', 'false');
+      localStorage.setItem('workpulse_admin_tab', 'dashboard');
     } catch (e) {}
     setIsKioskMode(false);
+    setActiveTabState('dashboard');
     setIsUnlockModalOpen(false);
+    if (window.location.pathname !== '/dashboard') {
+      window.history.pushState(null, '', '/dashboard');
+    }
   };
 
   const handleLockKiosk = () => {
     setIsKioskMode(true);
     try {
       localStorage.setItem('workpulse_is_kiosk', 'true');
+      localStorage.setItem('workpulse_admin_tab', 'facelock-kiosk');
     } catch (e) {}
     setActiveTabState('facelock-kiosk');
     setIsMobileMenuOpen(false);
+    if (window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+    }
   };
 
   const handleLogout = () => {
     try {
       localStorage.removeItem('workpulse_admin_user');
       localStorage.setItem('workpulse_is_kiosk', 'true');
+      localStorage.setItem('workpulse_admin_tab', 'facelock-kiosk');
     } catch (e) {}
     setAdminUser(null);
-    handleLockKiosk();
+    setIsKioskMode(true);
+    setActiveTabState('facelock-kiosk');
+    setIsMobileMenuOpen(false);
+    if (window.location.pathname !== '/') {
+      window.history.replaceState(null, '', '/');
+    }
   };
 
   const handleRefresh = async () => {
@@ -243,7 +324,7 @@ export default function App() {
       />
 
       {/* Sidebar Navigation: ONLY visible when HR/Admin unlocks the app! */}
-      {!isKioskMode && (
+      {adminUser && !isKioskMode && (
         <Sidebar 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
@@ -271,8 +352,8 @@ export default function App() {
         {/* Scrollable Page Container */}
         <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 md:p-8">
           <div className="max-w-7xl mx-auto">
-            {/* IN KIOSK MODE: ONLY Office FaceLock Attendance is rendered! */}
-            {isKioskMode ? (
+            {/* IN KIOSK / PUBLIC VISITOR MODE: ONLY Office FaceLock Attendance is rendered! */}
+            {!adminUser || isKioskMode ? (
               <OfficeFaceLockKiosk />
             ) : (
               /* IN UNLOCKED ADMIN MODE: HR/Manager can view all management options */

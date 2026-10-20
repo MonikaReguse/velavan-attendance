@@ -24,7 +24,7 @@ export default function Navbar({
       {/* Brand & Terminal Mode */}
       <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
         {/* Mobile Hamburger Button (Only shown in full admin mode on small screens) */}
-        {!isKioskMode && (
+        {adminUser && !isKioskMode && (
           <button
             onClick={onToggleMobileMenu}
             className="p-1.5 text-slate-600 hover:text-slate-900 md:hidden rounded-xl hover:bg-slate-100 shrink-0"
@@ -44,7 +44,7 @@ export default function Navbar({
             {officeName || 'Velavan Properties'}
           </h2>
           <div className="flex items-center space-x-1.5">
-            {isKioskMode ? (
+            {!adminUser || isKioskMode ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
                 <span className="text-[10px] font-bold text-[#8b0000] uppercase tracking-wider block truncate">
@@ -78,8 +78,8 @@ export default function Navbar({
           <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
         </button>
 
-        {/* KIOSK MODE: Show Admin Unlock Button */}
-        {isKioskMode ? (
+        {/* KIOSK / PUBLIC MODE: Show Admin Unlock Button */}
+        {!adminUser || isKioskMode ? (
           <button
             onClick={onOpenAdminUnlock}
             className="px-3 sm:px-3.5 py-1.5 sm:py-2 bg-[#8b0000] hover:bg-[#7b0000] text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-all"

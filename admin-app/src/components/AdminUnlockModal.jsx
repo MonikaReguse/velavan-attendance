@@ -94,9 +94,6 @@ export default function AdminUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Default password: <strong className="text-slate-600 font-mono">admin123</strong>
-            </span>
           </div>
 
           <button

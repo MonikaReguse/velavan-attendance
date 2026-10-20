@@ -4,7 +4,7 @@ import { api } from '../services/api';
 
 export default function AdminLogin({ onLoginSuccess }) {
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
