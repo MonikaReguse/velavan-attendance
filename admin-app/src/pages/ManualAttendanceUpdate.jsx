@@ -1003,7 +1003,7 @@ export default function ManualAttendanceUpdate() {
 
                   return (
                     <div 
-                      key={item.id}
+                      key={item.id || `${item.emp_id}_${item.date}`}
                       className={`p-3 rounded-2xl border transition-all ${
                         editingId === item.id 
                           ? 'bg-amber-50/70 border-amber-400 ring-2 ring-amber-300'

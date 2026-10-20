@@ -40,11 +40,21 @@ export const getLocalAttendance = () => {
         } else {
           // Keep the richer record (e.g. with clock_out, photo or total_hours)
           const merged = { ...existing, ...item };
-          if (existing.clock_out && !item.clock_out) merged.clock_out = existing.clock_out;
-          if (existing.total_hours && !item.total_hours) merged.total_hours = existing.total_hours;
-          if (existing.ot_hours && !item.ot_hours) merged.ot_hours = existing.ot_hours;
-          if (existing.ot_minutes && !item.ot_minutes) merged.ot_minutes = existing.ot_minutes;
-          if (existing.punch_photo && !item.punch_photo) merged.punch_photo = existing.punch_photo;
+          if (existing.clock_out && existing.clock_out !== '--' && (!item.clock_out || item.clock_out === '--')) {
+            merged.clock_out = existing.clock_out;
+          }
+          if (existing.total_hours && (!item.total_hours || item.total_hours === 0)) {
+            merged.total_hours = existing.total_hours;
+          }
+          if (existing.ot_hours && (!item.ot_hours || item.ot_hours === 0)) {
+            merged.ot_hours = existing.ot_hours;
+          }
+          if (existing.ot_minutes && (!item.ot_minutes || item.ot_minutes === 0)) {
+            merged.ot_minutes = existing.ot_minutes;
+          }
+          if (existing.punch_photo && !item.punch_photo) {
+            merged.punch_photo = existing.punch_photo;
+          }
           recordsMap.set(key, merged);
         }
       }
@@ -212,23 +222,91 @@ export const savePunchLocally = (punch) => {
   window.dispatchEvent(new CustomEvent('velavan_attendance_updated', { detail: punch }));
 };
 
+// Background synchronization queue to ensure server gets any locally preserved records
+let syncInProgress = false;
+export const syncLocalRecordsToServer = async (recordsToSync) => {
+  if (syncInProgress || !Array.isArray(recordsToSync) || recordsToSync.length === 0) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  syncInProgress = true;
+  try {
+    for (const rec of recordsToSync) {
+      if (!isValidAttendanceRecord(rec)) continue;
+      try {
+        await api.recordManualAttendance({
+          emp_id: rec.emp_id,
+          date: rec.date,
+          clock_in: rec.clock_in,
+          clock_out: rec.clock_out,
+          status: rec.status,
+          notes: rec.notes || 'Restored from local persistent storage',
+          ot_minutes: rec.ot_minutes || 0
+        });
+      } catch (err) {
+        console.warn(`[Sync] Failed to push local attendance for ${rec.emp_id} on ${rec.date}:`, err.message);
+      }
+    }
+  } catch (e) {
+    console.error('[Sync Error]:', e);
+  } finally {
+    syncInProgress = false;
+  }
+};
+
 // Smart 2-way merge: Combine server records with local storage, prioritizing authoritative server data
+// and permanently preserving all local records so redeploys and restarts NEVER erase attendance history!
 export const mergeAttendanceWithLocal = (serverRecords = []) => {
   const validServer = (Array.isArray(serverRecords) ? serverRecords : []).filter(isValidAttendanceRecord);
   const localList = getLocalAttendance();
+  const deletedKeys = getDeletedPunchKeys();
 
   const map = new Map();
 
-  // 1. Authoritative server records first
+  // 1. Authoritative server records first (excluding any explicitly deleted ones)
   for (const s of validServer) {
-    map.set(`${s.emp_id}_${s.date}`, s);
+    const key = `${s.emp_id}_${s.date}`;
+    if (!deletedKeys.has(key) && (!s.id || !deletedKeys.has(String(s.id)))) {
+      map.set(key, s);
+    }
   }
 
-  // 2. Only add offline local punches that have pending offline flag and do not exist on the server yet
+  // 2. Add local records:
+  // - If record is NOT on the server yet, KEEP IT and queue for background push to server!
+  // - If record IS on server, merge any richer fields (biometric punch_photo, clock_out, total_hours, notes) that server might be missing
+  const unsyncedToPush = [];
   for (const l of localList) {
     const key = `${l.emp_id}_${l.date}`;
-    if (!map.has(key) && l.is_offline_pending) {
+    if (deletedKeys.has(key) || (l.id && deletedKeys.has(String(l.id)))) {
+      continue;
+    }
+
+    const serverEntry = map.get(key);
+    if (!serverEntry) {
       map.set(key, l);
+      unsyncedToPush.push(l);
+    } else {
+      // Server record exists; enrich if local has valid data server lacks
+      const enriched = { ...serverEntry };
+      let changed = false;
+      if ((!enriched.clock_out || enriched.clock_out === '--') && l.clock_out && l.clock_out !== '--') {
+        enriched.clock_out = l.clock_out;
+        changed = true;
+      }
+      if ((!enriched.total_hours || enriched.total_hours === 0) && l.total_hours) {
+        enriched.total_hours = l.total_hours;
+        changed = true;
+      }
+      if ((!enriched.ot_minutes || enriched.ot_minutes === 0) && l.ot_minutes) {
+        enriched.ot_minutes = l.ot_minutes;
+        changed = true;
+      }
+      if (!enriched.punch_photo && l.punch_photo) {
+        enriched.punch_photo = l.punch_photo;
+        changed = true;
+      }
+      if (changed) {
+        map.set(key, enriched);
+      }
     }
   }
 
@@ -237,10 +315,22 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     return (b.clock_in || '').localeCompare(a.clock_in || '');
   });
 
-  // Save merged result back to local caches
+  // Save merged result back to local caches so local storage ALWAYS has the full history
   try {
     localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(merged));
   } catch {}
+
+  try {
+    const bStr = localStorage.getItem('velavan_master_database_backup');
+    const b = bStr ? JSON.parse(bStr) : { employees: [], attendance: [] };
+    b.attendance = merged;
+    localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+  } catch {}
+
+  // If there are records present locally that the server lacks, push them to the server in background!
+  if (unsyncedToPush.length > 0) {
+    syncLocalRecordsToServer(unsyncedToPush);
+  }
 
   return merged;
 };
