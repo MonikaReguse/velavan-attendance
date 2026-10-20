@@ -145,6 +145,40 @@ export default function ManualAttendanceUpdate() {
       || null;
   }, [selectedEmpId, selectedDate, recentLogs]);
 
+  // Live Day of the Week & Formatted Date
+  const selectedDayInfo = useMemo(() => {
+    if (!selectedDate) return { dayName: '', isSunday: false, formattedDate: '' };
+    try {
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const dateObj = new Date(year, month - 1, day);
+      if (isNaN(dateObj.getTime())) return { dayName: '', isSunday: false, formattedDate: '' };
+      
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      const formattedDate = dateObj.toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        day: 'numeric', 
+        month: 'short', 
+        year: 'numeric' 
+      });
+      const isSunday = dateObj.getDay() === 0;
+      return { dayName, isSunday, formattedDate };
+    } catch {
+      return { dayName: '', isSunday: false, formattedDate: '' };
+    }
+  }, [selectedDate]);
+
+  // Helper to format day name for any date string
+  const formatDayName = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return isNaN(dt.getTime()) ? '' : `(${dt.toLocaleDateString('en-US', { weekday: 'short' })})`;
+    } catch {
+      return '';
+    }
+  };
+
   // Handle switching employee in dropdown - NEVER keeps editingId of another employee!
   const handleSelectEmployee = (empId) => {
     if (!empId) return;
@@ -171,7 +205,7 @@ export default function ManualAttendanceUpdate() {
     setFeedback(null);
   };
 
-  // Handle switching date
+  // Handle switching date - automatically detects day and pre-fills Sunday Weekly Off if applicable
   const handleSelectDate = (newDate) => {
     setSelectedDate(newDate);
     setEditingId(null); // Clear editing mode when switching date
@@ -180,12 +214,24 @@ export default function ManualAttendanceUpdate() {
     const existing = all.find(a => a.emp_id === selectedEmpId && a.date === newDate)
       || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === newDate);
 
+    let isSunday = false;
+    try {
+      const [y, m, d] = newDate.split('-').map(Number);
+      isSunday = new Date(y, m - 1, d).getDay() === 0;
+    } catch {}
+
     if (existing) {
       setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
       setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
       setStatus(existing.status || 'present');
       setCustomOtMinutes(existing.ot_minutes ? String(existing.ot_minutes) : '');
       setNotes(existing.notes || 'HR manual adjustment');
+    } else if (isSunday) {
+      setClockIn('');
+      setClockOut('');
+      setStatus('weekly_off');
+      setCustomOtMinutes('0');
+      setNotes('Weekly Off (Paid Sunday Rest)');
     } else {
       setClockIn('09:30:00');
       setClockOut('18:00:00');
@@ -613,9 +659,23 @@ export default function ManualAttendanceUpdate() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Attendance Date <span className="text-red-600">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Attendance Date <span className="text-red-600">*</span>
+                  </label>
+                  {selectedDayInfo.dayName && (
+                    <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-lg font-bold text-[11px] ${
+                      selectedDayInfo.isSunday
+                        ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                        : 'bg-red-50 text-[#8b0000] border border-red-200'
+                    }`}>
+                      <Calendar className="w-3 h-3 text-[#8b0000]" />
+                      <span>{selectedDayInfo.dayName}</span>
+                      {selectedDayInfo.isSunday && <span className="ml-1 text-[9px] bg-purple-200 text-purple-900 px-1 rounded font-black">Weekly Off</span>}
+                    </span>
+                  )}
+                </div>
+
                 <div className="relative">
                   <input
                     type="date"
@@ -625,9 +685,27 @@ export default function ManualAttendanceUpdate() {
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-semibold focus:outline-none focus:border-[#8b0000] focus:ring-2 focus:ring-red-100"
                   />
                 </div>
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Select date to mark daily attendance or past adjustments.
-                </span>
+
+                {selectedDayInfo.dayName && (
+                  <div className="flex items-center justify-between mt-1 text-[11px]">
+                    <span className="font-semibold text-slate-600 flex items-center space-x-1">
+                      <span>Day:</span>
+                      <strong className={`font-black ${selectedDayInfo.isSunday ? 'text-purple-700' : 'text-[#8b0000]'}`}>
+                        {selectedDayInfo.dayName}
+                      </strong>
+                      <span className="text-slate-400 font-normal">({selectedDayInfo.formattedDate})</span>
+                    </span>
+                    {selectedDayInfo.isSunday ? (
+                      <span className="text-purple-700 font-bold text-[10px] bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                        Paid Weekly Off
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700 font-semibold text-[10px] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        Working Day
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -638,7 +716,7 @@ export default function ManualAttendanceUpdate() {
                   <div className="flex items-center space-x-2">
                     <Edit3 className="w-4 h-4 text-amber-700 shrink-0" />
                     <span>
-                      Modifying <strong>Record #{editingId}</strong> for <strong>{currentEmployee?.name}</strong> on {selectedDate}.
+                      Modifying <strong>Record #{editingId}</strong> for <strong>{currentEmployee?.name}</strong> on {selectedDate} ({selectedDayInfo.dayName}).
                     </span>
                   </div>
                   <button
@@ -654,7 +732,7 @@ export default function ManualAttendanceUpdate() {
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
                     <span>
-                      Attendance already recorded for <strong>{currentEmployee?.name}</strong> on {selectedDate} ({existingRecord?.status?.toUpperCase()} • {existingRecord?.clock_in || '--'} to {existingRecord?.clock_out || '--'}).
+                      Attendance already recorded for <strong>{currentEmployee?.name}</strong> on {selectedDate} ({selectedDayInfo.dayName}) ({existingRecord?.status?.toUpperCase()} • {existingRecord?.clock_in || '--'} to {existingRecord?.clock_out || '--'}).
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -681,7 +759,7 @@ export default function ManualAttendanceUpdate() {
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2 text-xs text-emerald-800 font-medium">
                 <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  No record yet for <strong>{currentEmployee?.name}</strong> on {selectedDate}. Standard 09:30 AM – 06:00 PM pre-filled.
+                  No record yet for <strong>{currentEmployee?.name}</strong> on {selectedDate} ({selectedDayInfo.dayName}). Standard timings pre-filled.
                 </span>
               </div>
             )}
@@ -937,7 +1015,9 @@ export default function ManualAttendanceUpdate() {
                           <span className="font-bold text-xs text-slate-900">{item.employee_name}</span>
                           <span className="text-[10px] font-mono text-slate-400">({item.emp_id})</span>
                         </div>
-                        <span className="text-[11px] font-mono font-bold text-slate-700">{item.date}</span>
+                        <span className="text-[11px] font-mono font-bold text-slate-700">
+                          {item.date} <span className="text-slate-400 font-semibold text-[10px]">{formatDayName(item.date)}</span>
+                        </span>
                       </div>
 
                       {/* Timings row */}

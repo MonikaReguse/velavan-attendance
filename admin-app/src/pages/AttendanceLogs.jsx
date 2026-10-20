@@ -359,7 +359,15 @@ export default function AttendanceLogs() {
                   return (
                     <tr key={log.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3 font-mono font-medium text-slate-700">
-                        {log.date}
+                        <div>{log.date}</div>
+                        <div className="text-[10px] text-slate-400 font-sans font-semibold">
+                          {(() => {
+                            try {
+                              const [y, m, d] = log.date.split('-').map(Number);
+                              return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' });
+                            } catch { return ''; }
+                          })()}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2.5">
@@ -487,13 +495,30 @@ export default function AttendanceLogs() {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Date</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-700 font-semibold">Attendance Date</label>
+                  {formData.date && (() => {
+                    try {
+                      const [y, m, d] = formData.date.split('-').map(Number);
+                      const dt = new Date(y, m - 1, d);
+                      const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+                      const isSun = dt.getDay() === 0;
+                      return (
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                          isSun ? 'bg-purple-100 text-purple-800' : 'bg-red-50 text-[#8b0000]'
+                        }`}>
+                          📅 {dayName} {isSun ? '(Weekly Off)' : ''}
+                        </span>
+                      );
+                    } catch { return null; }
+                  })()}
+                </div>
                 <input
                   type="date"
                   required
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-xs"
                 />
               </div>
 
