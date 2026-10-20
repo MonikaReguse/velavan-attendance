@@ -180,6 +180,13 @@ function initDb() {
     // Column already exists, safe to ignore
   }
 
+  // Migration: Add holiday_type column to attendance table if not present
+  try {
+    db.exec(`ALTER TABLE attendance ADD COLUMN holiday_type TEXT DEFAULT 'normal'`);
+  } catch (e) {
+    // Column already exists, safe to ignore
+  }
+
   // Populate ot_minutes from existing ot_hours if needed
   try {
     db.exec(`UPDATE attendance SET ot_minutes = CAST(ROUND(ot_hours * 60) AS INTEGER) WHERE (ot_minutes IS NULL OR ot_minutes = 0) AND ot_hours > 0`);

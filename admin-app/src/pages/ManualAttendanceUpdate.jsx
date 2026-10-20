@@ -55,6 +55,7 @@ export default function ManualAttendanceUpdate() {
   const [clockIn, setClockIn] = useState('09:30:00');
   const [clockOut, setClockOut] = useState('18:00:00');
   const [status, setStatus] = useState('present');
+  const [holidayType, setHolidayType] = useState('normal'); // 'normal' | 'govt_holiday_worked' | 'govt_holiday_leave' | 'own_leave'
   const [customOtMinutes, setCustomOtMinutes] = useState('');
   const [notes, setNotes] = useState('HR manual attendance entry');
 
@@ -209,6 +210,7 @@ export default function ManualAttendanceUpdate() {
       setClockIn(existingRecord.clock_in && existingRecord.clock_in !== '--' ? existingRecord.clock_in : '09:30:00');
       setClockOut(existingRecord.clock_out && existingRecord.clock_out !== '--' ? existingRecord.clock_out : '18:00:00');
       setStatus(existingRecord.status || 'present');
+      setHolidayType(existingRecord.holiday_type || 'normal');
       setCustomOtMinutes((existingRecord.ot_minutes !== undefined && existingRecord.ot_minutes !== null && Number(existingRecord.ot_minutes) > 0) ? String(existingRecord.ot_minutes) : '');
       setNotes(existingRecord.notes || 'HR manual adjustment');
     } else {
@@ -222,12 +224,14 @@ export default function ManualAttendanceUpdate() {
         setClockIn('');
         setClockOut('');
         setStatus('weekly_off');
+        setHolidayType('normal');
         setCustomOtMinutes('0');
         setNotes('Weekly Off (Paid Sunday Rest)');
       } else {
         setClockIn('09:30:00');
         setClockOut('18:00:00');
         setStatus('present');
+        setHolidayType('normal');
         setCustomOtMinutes('');
         setNotes('HR manual attendance entry');
       }
@@ -313,57 +317,179 @@ export default function ManualAttendanceUpdate() {
     return { totalHours, otMinutes, previewStatus: inM > 580 ? 'late' : status };
   }, [clockIn, clockOut, status, customOtMinutes]);
 
+  // Handle Holiday / Leave Type selection
+  const handleHolidayTypeChange = (newType) => {
+    setHolidayType(newType);
+    if (newType === 'govt_holiday_worked') {
+      setStatus('present');
+      if (!clockIn || clockIn === '--' || clockIn === 'OD') setClockIn('09:30:00');
+      if (!clockOut || clockOut === '--' || clockOut === 'OD') setClockOut('18:00:00');
+      setNotes('Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)');
+    } else if (newType === 'govt_holiday_leave') {
+      setStatus('present');
+      setClockIn('--');
+      setClockOut('--');
+      setCustomOtMinutes('0');
+      setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
+    } else if (newType === 'own_leave') {
+      setStatus('absent');
+      setClockIn('--');
+      setClockOut('--');
+      setCustomOtMinutes('0');
+      setNotes('Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)');
+    } else if (newType === 'normal') {
+      if (status === 'absent' && notes.includes('Employee Own Leave')) {
+        setStatus('present');
+        setClockIn('09:30:00');
+        setClockOut('18:00:00');
+        setNotes('HR manual attendance entry');
+      }
+    }
+  };
+
+  // Salary Impact & Holiday Calculation Preview
+  const salaryImpactInfo = useMemo(() => {
+    const baseSalary = Number(currentEmployee?.salary || 0);
+    const dailyRate = baseSalary > 0 ? Math.round(baseSalary / 30) : 0;
+    
+    let multiplier = 1;
+    let ruleName = 'Normal Working Day';
+    let ruleColor = 'emerald';
+    let dayAmount = dailyRate;
+    let deductionAmount = 0;
+    let extraBonus = 0;
+    let explanation = 'Standard single-day salary earned';
+
+    if (holidayType === 'govt_holiday_worked') {
+      multiplier = 2;
+      ruleName = 'Government Holiday – Worked in Office';
+      ruleColor = 'amber';
+      extraBonus = dailyRate;
+      dayAmount = dailyRate * 2;
+      explanation = 'Double Salary: 2 × Normal Daily Salary (1× Base Pay + 1× Extra Holiday Bonus)';
+    } else if (holidayType === 'govt_holiday_leave') {
+      multiplier = 1;
+      ruleName = 'Government Holiday – Office Granted Leave';
+      ruleColor = 'blue';
+      dayAmount = dailyRate;
+      explanation = 'Paid Government Holiday: 1 × Normal Daily Salary (Paid by Office, No Deduction)';
+    } else if (holidayType === 'own_leave') {
+      multiplier = 0;
+      ruleName = 'Employee Own Leave (Unpaid)';
+      ruleColor = 'rose';
+      deductionAmount = dailyRate;
+      dayAmount = 0;
+      explanation = 'Unpaid Leave: 1 Day Salary Deducted from Monthly Payout (-1× Daily Rate)';
+    } else if (status === 'absent') {
+      multiplier = 0;
+      ruleName = 'Absent (Loss of Pay)';
+      ruleColor = 'rose';
+      deductionAmount = dailyRate;
+      dayAmount = 0;
+      explanation = 'Absent: 1 Day Salary Deducted (Loss of Pay)';
+    } else if (status === 'half_day') {
+      multiplier = 0.5;
+      ruleName = 'Half Day (0.5× Pay)';
+      ruleColor = 'sky';
+      deductionAmount = Math.round(dailyRate * 0.5);
+      dayAmount = Math.round(dailyRate * 0.5);
+      explanation = 'Half-Day: 0.5 Day Salary Deducted';
+    }
+
+    return {
+      baseSalary,
+      dailyRate,
+      multiplier,
+      ruleName,
+      ruleColor,
+      dayAmount,
+      deductionAmount,
+      extraBonus,
+      explanation
+    };
+  }, [currentEmployee, holidayType, status]);
+
   // Quick Preset Handlers
   const applyPreset = (presetName) => {
     if (presetName === 'on_time') {
+      setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:00:00');
       setStatus('present');
       setCustomOtMinutes('');
       setNotes('Full Day (On-Time 09:30 AM – 06:00 PM)');
+    } else if (presetName === 'govt_holiday_worked') {
+      setHolidayType('govt_holiday_worked');
+      setStatus('present');
+      setClockIn('09:30:00');
+      setClockOut('18:00:00');
+      setCustomOtMinutes('');
+      setNotes('Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)');
+    } else if (presetName === 'govt_holiday_leave') {
+      setHolidayType('govt_holiday_leave');
+      setStatus('present');
+      setClockIn('--');
+      setClockOut('--');
+      setCustomOtMinutes('0');
+      setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
+    } else if (presetName === 'own_leave') {
+      setHolidayType('own_leave');
+      setStatus('absent');
+      setClockIn('--');
+      setClockOut('--');
+      setCustomOtMinutes('0');
+      setNotes('Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)');
     } else if (presetName === 'od_full') {
+      setHolidayType('normal');
       setClockIn('OD');
       setClockOut('OD');
       setStatus('od');
       setCustomOtMinutes('0');
       setNotes('Full Day OD (On Duty - Official Client / Site Visit)');
     } else if (presetName === 'od_login') {
+      setHolidayType('normal');
       setClockIn('OD');
       setClockOut('18:00:00');
       setStatus('login_od');
       setCustomOtMinutes('');
       setNotes('Morning OD (Login On Duty - Client / Field Work)');
     } else if (presetName === 'od_logout') {
+      setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('OD');
       setStatus('logout_od');
       setCustomOtMinutes('');
       setNotes('Evening OD (Logout On Duty - Client / Site Visit)');
     } else if (presetName === 'ot_20') {
+      setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:20:00');
       setStatus('present');
       setCustomOtMinutes('20');
       setNotes('Regular Shift + 20 mins Overtime (Exit 06:20 PM)');
     } else if (presetName === 'ot_30') {
+      setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:30:00');
       setStatus('present');
       setCustomOtMinutes('30');
       setNotes('Regular Shift + 30 mins Overtime (Exit 06:30 PM)');
     } else if (presetName === 'half_day') {
+      setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('14:00:00');
       setStatus('half_day');
       setCustomOtMinutes('0');
       setNotes('Half-Day attendance approved by management');
     } else if (presetName === 'absent') {
+      setHolidayType('normal');
       setClockIn('');
       setClockOut('');
       setStatus('absent');
       setCustomOtMinutes('0');
       setNotes('Leave / Absent (Loss of Pay)');
     } else if (presetName === 'weekly_off') {
+      setHolidayType('normal');
       setClockIn('');
       setClockOut('');
       setStatus('weekly_off');
@@ -381,6 +507,7 @@ export default function ManualAttendanceUpdate() {
     setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
     setClockOut((record.clock_out && record.clock_out !== '--') ? record.clock_out : '18:00:00');
     setStatus(record.status || 'present');
+    setHolidayType(record.holiday_type || 'normal');
     setCustomOtMinutes((record.ot_minutes !== undefined && record.ot_minutes !== null && Number(record.ot_minutes) > 0) ? String(record.ot_minutes) : '');
     setNotes(record.notes || 'HR manual adjustment');
     setFeedback({
@@ -396,6 +523,7 @@ export default function ManualAttendanceUpdate() {
     setClockIn('09:30:00');
     setClockOut('18:00:00');
     setStatus('present');
+    setHolidayType('normal');
     setCustomOtMinutes('');
     setNotes('HR manual attendance entry');
     setFeedback({
@@ -450,13 +578,22 @@ export default function ManualAttendanceUpdate() {
         targetId = existingRecord.id;
       }
 
+      // Auto-harmonize status with holiday_type
+      let finalStatus = status;
+      if (holidayType === 'own_leave') {
+        finalStatus = 'absent';
+      } else if (holidayType === 'govt_holiday_worked' && status === 'absent') {
+        finalStatus = 'present';
+      }
+
       const payload = {
         id: targetId,
         emp_id: selectedEmpId,
         date: selectedDate,
-        clock_in: (status === 'absent' || status === 'weekly_off') ? '--' : (clockIn || '--'),
-        clock_out: (status === 'absent' || status === 'weekly_off') ? '--' : (clockOut || '--'),
-        status: status,
+        clock_in: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave') ? '--' : (clockIn || '--'),
+        clock_out: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave') ? '--' : (clockOut || '--'),
+        status: finalStatus,
+        holiday_type: holidayType,
         notes: trimmedNotes || (isODActive ? 'Client Site Visit' : 'HR manual attendance entry'),
         ot_minutes: customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes
       };
@@ -474,7 +611,8 @@ export default function ManualAttendanceUpdate() {
           punch_photo: res.attendance?.punch_photo || existingRecord?.punch_photo || undefined,
           method: res.attendance?.method || existingRecord?.method || 'manual',
           total_hours: calculatedStats.totalHours,
-          ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0
+          ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0,
+          holiday_type: holidayType
         };
         savePunchLocally(savedPunch);
 
@@ -818,7 +956,7 @@ export default function ManualAttendanceUpdate() {
             {/* 2. 1-Click Quick Shift Presets */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                ⚡ 1-Click Quick Presets (Click to Auto-Fill Timings)
+                ⚡ 1-Click Quick Presets (Click to Auto-Fill Timings & Holiday Rules)
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <button
@@ -828,6 +966,45 @@ export default function ManualAttendanceUpdate() {
                 >
                   <span className="text-[11px] font-bold text-emerald-800 block">Full Day (On-Time)</span>
                   <span className="text-[10px] text-emerald-600 font-mono">09:30 AM – 06:00 PM</span>
+                </button>
+
+                {/* Government Holiday – Worked in Office (Double Salary) */}
+                <button
+                  type="button"
+                  onClick={() => applyPreset('govt_holiday_worked')}
+                  className="p-2 text-left bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors shadow-2xs"
+                >
+                  <span className="text-[11px] font-bold text-amber-900 block flex items-center space-x-1">
+                    <span>Govt Holiday (Worked)</span>
+                    <span className="text-[9px] bg-amber-200 text-amber-900 px-1 rounded font-black">2× Pay</span>
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-mono">Double Salary Day</span>
+                </button>
+
+                {/* Government Holiday – Office Granted Leave */}
+                <button
+                  type="button"
+                  onClick={() => applyPreset('govt_holiday_leave')}
+                  className="p-2 text-left bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-xl transition-colors shadow-2xs"
+                >
+                  <span className="text-[11px] font-bold text-blue-900 block flex items-center space-x-1">
+                    <span>Govt Holiday (Granted)</span>
+                    <span className="text-[9px] bg-blue-200 text-blue-900 px-1 rounded font-black">1× Paid</span>
+                  </span>
+                  <span className="text-[10px] text-blue-700 font-mono">Office Granted Leave</span>
+                </button>
+
+                {/* Employee Own Leave (Unpaid) */}
+                <button
+                  type="button"
+                  onClick={() => applyPreset('own_leave')}
+                  className="p-2 text-left bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-xl transition-colors shadow-2xs"
+                >
+                  <span className="text-[11px] font-bold text-rose-900 block flex items-center space-x-1">
+                    <span>Employee Own Leave</span>
+                    <span className="text-[9px] bg-rose-200 text-rose-900 px-1 rounded font-black">Unpaid</span>
+                  </span>
+                  <span className="text-[10px] text-rose-700 font-mono">-1 Day Salary Deducted</span>
                 </button>
 
                 <button
@@ -869,7 +1046,7 @@ export default function ManualAttendanceUpdate() {
                 <button
                   type="button"
                   onClick={() => applyPreset('ot_20')}
-                  className="p-2 text-left bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
+                  className="p-2 text-left bg-amber-50/70 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
                 >
                   <span className="text-[11px] font-bold text-amber-900 block">+20 mins OT</span>
                   <span className="text-[10px] text-amber-700 font-mono">09:30 AM – 06:20 PM</span>
@@ -913,166 +1090,282 @@ export default function ManualAttendanceUpdate() {
               </div>
             </div>
 
-            {/* 3. Clock In, Clock Out & Status */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Clock In / Login */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-700">
-                    Clock In / Login
+            {/* 3. Holiday / Leave Type, Status, Clock In, Clock Out */}
+            <div className="space-y-3">
+              {/* Row A: Status & Holiday / Leave Type */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Holiday / Leave Type Dropdown */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Holiday / Leave Type</span>
+                    </label>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded ${
+                      holidayType === 'govt_holiday_worked' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                      holidayType === 'govt_holiday_leave' ? 'bg-blue-100 text-blue-900 border border-blue-300' :
+                      holidayType === 'own_leave' ? 'bg-rose-100 text-rose-900 border border-rose-300' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {holidayType === 'govt_holiday_worked' ? '2× Double Pay' :
+                       holidayType === 'govt_holiday_leave' ? '1× Paid Holiday' :
+                       holidayType === 'own_leave' ? 'Unpaid (-1 Day)' : 'Normal'}
+                    </span>
+                  </div>
+
+                  <select
+                    value={holidayType}
+                    onChange={(e) => handleHolidayTypeChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-slate-900 text-xs font-bold focus:outline-none focus:border-[#8b0000]"
+                  >
+                    <option value="normal">Normal Working Day</option>
+                    <option value="govt_holiday_worked">Government Holiday – Worked in Office</option>
+                    <option value="govt_holiday_leave">Government Holiday – Office Granted Leave</option>
+                    <option value="own_leave">Employee Own Leave</option>
+                  </select>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Calculates salary according to official government holiday rules
+                  </span>
+                </div>
+
+                {/* Attendance Status Dropdown */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Attendance Status
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (clockIn === 'OD') {
-                        setClockIn('09:30:00');
-                        if (status === 'login_od' || (status === 'od' && clockOut !== 'OD')) setStatus('present');
-                      } else {
+                  <select
+                    value={status}
+                    onChange={(e) => {
+                      const nextStatus = e.target.value;
+                      setStatus(nextStatus);
+                      if (nextStatus === 'od') {
                         setClockIn('OD');
-                        if (clockOut === 'OD') setStatus('od');
-                        else setStatus('login_od');
-                      }
-                    }}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                      clockIn === 'OD'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                    }`}
-                    title="Click to toggle Login On Duty (OD)"
-                  >
-                    {clockIn === 'OD' ? '✓ Login OD' : '+ Login OD'}
-                  </button>
-                </div>
-
-                {clockIn === 'OD' ? (
-                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
-                    <span className="flex items-center space-x-1.5">
-                      <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
-                      <span>OD (On Duty)</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setClockIn('09:30:00')}
-                      className="text-[10px] text-indigo-600 hover:underline font-semibold"
-                    >
-                      Set Time
-                    </button>
-                  </div>
-                ) : (
-                  <input
-                    type="time"
-                    step="1"
-                    disabled={status === 'absent' || status === 'weekly_off'}
-                    value={clockIn}
-                    onChange={(e) => setClockIn(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
-                  />
-                )}
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {clockIn === 'OD' ? 'Morning Official On Duty' : 'Base: 09:30:00'}
-                </span>
-              </div>
-
-              {/* Clock Out / Logout */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-700">
-                    Clock Out / Logout
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (clockOut === 'OD') {
-                        setClockOut('18:00:00');
-                        if (status === 'logout_od' || (status === 'od' && clockIn !== 'OD')) setStatus('present');
-                      } else {
                         setClockOut('OD');
-                        if (clockIn === 'OD') setStatus('od');
-                        else setStatus('logout_od');
+                        if (!notes || notes === 'HR manual attendance entry') setNotes('Full Day OD (On Duty)');
+                      } else if (nextStatus === 'login_od') {
+                        setClockIn('OD');
+                        if (clockOut === 'OD') setClockOut('18:00:00');
+                        if (!notes || notes === 'HR manual attendance entry') setNotes('Morning OD (Login On Duty)');
+                      } else if (nextStatus === 'logout_od') {
+                        if (clockIn === 'OD') setClockIn('09:30:00');
+                        setClockOut('OD');
+                        if (!notes || notes === 'HR manual attendance entry') setNotes('Evening OD (Logout On Duty)');
+                      } else if (nextStatus === 'absent' || nextStatus === 'weekly_off') {
+                        setClockIn('');
+                        setClockOut('');
+                      } else if ((clockIn === 'OD' || clockOut === 'OD') && nextStatus === 'present') {
+                        if (clockIn === 'OD') setClockIn('09:30:00');
+                        if (clockOut === 'OD') setClockOut('18:00:00');
                       }
                     }}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                      clockOut === 'OD'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                    }`}
-                    title="Click to toggle Logout On Duty (OD)"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-semibold focus:outline-none focus:border-[#8b0000]"
                   >
-                    {clockOut === 'OD' ? '✓ Logout OD' : '+ Logout OD'}
-                  </button>
+                    <option value="present">Present (On-Time)</option>
+                    <option value="od">On Duty (OD - Full Day)</option>
+                    <option value="login_od">Login OD (Morning Duty)</option>
+                    <option value="logout_od">Logout OD (Evening Duty)</option>
+                    <option value="late">Late Arrival</option>
+                    <option value="half_day">Half Day</option>
+                    <option value="absent">Absent (Loss of Pay)</option>
+                    <option value="weekly_off">Weekly Off (Paid)</option>
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Affects payroll</span>
                 </div>
-
-                {clockOut === 'OD' ? (
-                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
-                    <span className="flex items-center space-x-1.5">
-                      <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
-                      <span>OD (On Duty)</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setClockOut('18:00:00')}
-                      className="text-[10px] text-indigo-600 hover:underline font-semibold"
-                    >
-                      Set Time
-                    </button>
-                  </div>
-                ) : (
-                  <input
-                    type="time"
-                    step="1"
-                    disabled={status === 'absent' || status === 'weekly_off'}
-                    value={clockOut}
-                    onChange={(e) => setClockOut(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
-                  />
-                )}
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {clockOut === 'OD' ? 'Evening Official On Duty' : 'Shift End: 18:00:00'}
-                </span>
               </div>
 
-              {/* Status Dropdown */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Attendance Status
-                </label>
-                <select
-                  value={status}
-                  onChange={(e) => {
-                    const nextStatus = e.target.value;
-                    setStatus(nextStatus);
-                    if (nextStatus === 'od') {
-                      setClockIn('OD');
-                      setClockOut('OD');
-                      if (!notes || notes === 'HR manual attendance entry') setNotes('Full Day OD (On Duty)');
-                    } else if (nextStatus === 'login_od') {
-                      setClockIn('OD');
-                      if (clockOut === 'OD') setClockOut('18:00:00');
-                      if (!notes || notes === 'HR manual attendance entry') setNotes('Morning OD (Login On Duty)');
-                    } else if (nextStatus === 'logout_od') {
-                      if (clockIn === 'OD') setClockIn('09:30:00');
-                      setClockOut('OD');
-                      if (!notes || notes === 'HR manual attendance entry') setNotes('Evening OD (Logout On Duty)');
-                    } else if (nextStatus === 'absent' || nextStatus === 'weekly_off') {
-                      setClockIn('');
-                      setClockOut('');
-                    } else if ((clockIn === 'OD' || clockOut === 'OD') && nextStatus === 'present') {
-                      if (clockIn === 'OD') setClockIn('09:30:00');
-                      if (clockOut === 'OD') setClockOut('18:00:00');
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-semibold focus:outline-none focus:border-[#8b0000]"
-                >
-                  <option value="present">Present (On-Time)</option>
-                  <option value="od">On Duty (OD - Full Day)</option>
-                  <option value="login_od">Login OD (Morning Duty)</option>
-                  <option value="logout_od">Logout OD (Evening Duty)</option>
-                  <option value="late">Late Arrival</option>
-                  <option value="half_day">Half Day</option>
-                  <option value="absent">Absent (Loss of Pay)</option>
-                  <option value="weekly_off">Weekly Off (Paid)</option>
-                </select>
-                <span className="text-[10px] text-slate-400 mt-0.5 block">Affects payroll</span>
+              {/* Row B: Check-in Time & Check-out Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Clock In / Login */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Check-in Time
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (clockIn === 'OD') {
+                          setClockIn('09:30:00');
+                          if (status === 'login_od' || (status === 'od' && clockOut !== 'OD')) setStatus('present');
+                        } else {
+                          setClockIn('OD');
+                          if (clockOut === 'OD') setStatus('od');
+                          else setStatus('login_od');
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                        clockIn === 'OD'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                      }`}
+                      title="Click to toggle Login On Duty (OD)"
+                    >
+                      {clockIn === 'OD' ? '✓ Login OD' : '+ Login OD'}
+                    </button>
+                  </div>
+
+                  {clockIn === 'OD' ? (
+                    <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                        <span>OD (On Duty)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setClockIn('09:30:00')}
+                        className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                      >
+                        Set Time
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="time"
+                      step="1"
+                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave'}
+                      value={clockIn}
+                      onChange={(e) => setClockIn(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
+                    />
+                  )}
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    {clockIn === 'OD' ? 'Morning Official On Duty' : 'Standard Shift: 09:30:00'}
+                  </span>
+                </div>
+
+                {/* Clock Out / Logout */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Check-out Time
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (clockOut === 'OD') {
+                          setClockOut('18:00:00');
+                          if (status === 'logout_od' || (status === 'od' && clockIn !== 'OD')) setStatus('present');
+                        } else {
+                          setClockOut('OD');
+                          if (clockIn === 'OD') setStatus('od');
+                          else setStatus('logout_od');
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                        clockOut === 'OD'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                      }`}
+                      title="Click to toggle Logout On Duty (OD)"
+                    >
+                      {clockOut === 'OD' ? '✓ Logout OD' : '+ Logout OD'}
+                    </button>
+                  </div>
+
+                  {clockOut === 'OD' ? (
+                    <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                        <span>OD (On Duty)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setClockOut('18:00:00')}
+                        className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                      >
+                        Set Time
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="time"
+                      step="1"
+                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave'}
+                      value={clockOut}
+                      onChange={(e) => setClockOut(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
+                    />
+                  )}
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    {clockOut === 'OD' ? 'Evening Official On Duty' : 'Standard Exit: 18:00:00'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Salary Impact & Holiday Calculation Preview */}
+            <div className={`p-4 rounded-2xl border transition-all ${
+              holidayType === 'govt_holiday_worked'
+                ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-100 text-amber-950'
+                : holidayType === 'govt_holiday_leave'
+                ? 'bg-blue-50/80 border-blue-300 text-blue-950'
+                : holidayType === 'own_leave'
+                ? 'bg-rose-50/80 border-rose-300 text-rose-950'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2 mb-2 border-slate-200/60">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className={`w-4 h-4 ${
+                    holidayType === 'govt_holiday_worked' ? 'text-amber-600' :
+                    holidayType === 'govt_holiday_leave' ? 'text-blue-600' :
+                    holidayType === 'own_leave' ? 'text-rose-600' : 'text-emerald-600'
+                  }`} />
+                  <span className="font-bold text-xs uppercase tracking-wider">
+                    Salary Calculation Rule: {salaryImpactInfo.ruleName}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-xs font-mono">
+                  <span className="text-slate-500">Employee Basic: ₹{salaryImpactInfo.baseSalary.toLocaleString('en-IN')}/mo</span>
+                  <span>•</span>
+                  <span className="font-bold text-slate-700">Per-Day: ₹{salaryImpactInfo.dailyRate}/day</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Day's Calculated Earnings</span>
+                  <div className="text-lg font-black font-mono">
+                    {holidayType === 'govt_holiday_worked' ? (
+                      <span className="text-amber-800">
+                        ₹{(salaryImpactInfo.dailyRate * 2).toLocaleString('en-IN')} <span className="text-xs font-bold">(2× Double Pay)</span>
+                      </span>
+                    ) : holidayType === 'govt_holiday_leave' ? (
+                      <span className="text-blue-800">
+                        ₹{salaryImpactInfo.dailyRate.toLocaleString('en-IN')} <span className="text-xs font-bold">(1× Fully Paid)</span>
+                      </span>
+                    ) : holidayType === 'own_leave' ? (
+                      <span className="text-rose-700">
+                        ₹0 <span className="text-xs font-bold">(Unpaid)</span>
+                      </span>
+                    ) : (
+                      <span className="text-emerald-800">
+                        ₹{salaryImpactInfo.dayAmount.toLocaleString('en-IN')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Payroll Adjustment Effect</span>
+                  <div className="text-xs font-bold font-mono mt-1">
+                    {holidayType === 'govt_holiday_worked' ? (
+                      <span className="text-amber-700 font-extrabold">+₹{salaryImpactInfo.dailyRate} Extra Bonus Disbursed</span>
+                    ) : holidayType === 'govt_holiday_leave' ? (
+                      <span className="text-blue-700 font-semibold">₹0 Deduction (Standard Day Included)</span>
+                    ) : holidayType === 'own_leave' ? (
+                      <span className="text-rose-700 font-extrabold">-₹{salaryImpactInfo.dailyRate} Loss of Pay (Deduction)</span>
+                    ) : (
+                      <span className="text-slate-600">Standard Daily Shift</span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Policy Rule Summary</span>
+                  <p className="text-[11px] text-slate-600 mt-0.5 font-medium leading-tight">
+                    {salaryImpactInfo.explanation}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1298,8 +1591,24 @@ export default function ManualAttendanceUpdate() {
                           )}
                         </div>
 
-                        {/* Status Badge */}
-                        <div>
+                        {/* Status & Holiday Badge */}
+                        <div className="flex items-center space-x-1 flex-wrap justify-end">
+                          {item.holiday_type === 'govt_holiday_worked' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                              Govt Holiday (2× Pay)
+                            </span>
+                          )}
+                          {item.holiday_type === 'govt_holiday_leave' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                              Govt Holiday (Paid)
+                            </span>
+                          )}
+                          {item.holiday_type === 'own_leave' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                              Own Leave (Unpaid)
+                            </span>
+                          )}
+
                           {item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                               {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}

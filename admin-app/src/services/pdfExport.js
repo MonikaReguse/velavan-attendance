@@ -885,39 +885,88 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     doc.text(`Policy Note: Standard monthly attendance applied (${absText}, ${lateText}). 100% full attendance qualifies for +2 days extra bonus.`, 18, policyY + 5.5);
   }
 
-  // Section 1: Salary Calculation Breakdown Table
+  // Section 1: Salary Calculation Breakdown Table (Supports Government Holidays & Unpaid Leave)
   const calcRows = [
     [
       'Monthly Allocated Base Salary',
       'Official Base Pay for 30-Day Month',
       `+${formatINR(stats.baseSalary || 0)}`
-    ],
-    [
-      'Loss of Pay (Absences)',
-      stats.absent > 0 ? `${stats.absent} Day(s) Absent × ${formatINR(stats.dailyRate || 0)}/day` : '0 Days Absent (No Deductions)',
-      stats.absent > 0 ? `-${formatINR(stats.absent * (stats.dailyRate || 0))}` : 'Rs. 0'
-    ],
-    [
-      'Half-Day Deductions',
-      (stats.halfday || 0) > 0 ? `${stats.halfday} Half-Day(s) × 50% Daily Rate` : '0 Half-Days',
-      (stats.halfday || 0) > 0 ? `-${formatINR(Math.round((stats.halfday || 0) * 0.5 * (stats.dailyRate || 0)))}` : 'Rs. 0'
-    ],
-    [
-      'Overtime (OT) Earnings',
-      (stats.otMinutes || 0) > 0 ? `${stats.otMinutes} mins logged beyond 6:00 PM buffer @ 1.5x rate` : '0 mins Overtime',
-      `+${formatINR(stats.otPay || 0)}`
-    ],
-    [
-      'Full Present Bonus (+2 Days Extra Salary)',
-      isEligible ? '100% Full Attendance Incentive (2 Days Prorated Salary)' : `Requires 0 Absences (Staff had ${stats.absent} absences)`,
-      isEligible ? `+${formatINR(stats.fullPresentBonus || 0)}` : 'Rs. 0'
-    ],
-    [
-      'TOTAL NET PAYABLE SALARY',
-      'Net Bank Transfer / Disbursal Amount',
-      formatINR(stats.netTotalPayout || 0)
     ]
   ];
+
+  if ((stats.govtHolidayWorked || 0) > 0) {
+    calcRows.push([
+      'Government Holiday Worked (2× Pay)',
+      `${stats.govtHolidayWorked} Day(s) Worked on Govt Holiday (+1× Extra Paid Bonus)`,
+      `+${formatINR((stats.govtHolidayWorked || 0) * (stats.dailyRate || 0))}`
+    ]);
+  }
+
+  if ((stats.govtHolidayGranted || 0) > 0) {
+    calcRows.push([
+      'Government Holiday (Office Granted)',
+      `${stats.govtHolidayGranted} Day(s) Paid Holiday Granted by Office (1× Pay Included)`,
+      'Included (Rs. 0)'
+    ]);
+  }
+
+  if ((stats.ownLeaveDays || 0) > 0) {
+    calcRows.push([
+      'Employee Own Leave (Unpaid)',
+      `${stats.ownLeaveDays} Day(s) Unpaid Leave × ${formatINR(stats.dailyRate || 0)}/day`,
+      `-${formatINR(stats.unpaidLeaveDeductions || ((stats.ownLeaveDays || 0) * (stats.dailyRate || 0)))}`
+    ]);
+  }
+
+  if ((stats.otherAbsent || 0) > 0) {
+    calcRows.push([
+      'Other Absences (Loss of Pay)',
+      `${stats.otherAbsent} Day(s) Absent × ${formatINR(stats.dailyRate || 0)}/day`,
+      `-${formatINR(stats.otherDeductions || ((stats.otherAbsent || 0) * (stats.dailyRate || 0)))}`
+    ]);
+  } else if (!stats.ownLeaveDays && (stats.absent || 0) > 0) {
+    calcRows.push([
+      'Loss of Pay (Absences)',
+      `${stats.absent} Day(s) Absent × ${formatINR(stats.dailyRate || 0)}/day`,
+      `-${formatINR((stats.absent || 0) * (stats.dailyRate || 0))}`
+    ]);
+  }
+
+  if ((stats.halfday || 0) > 0) {
+    calcRows.push([
+      'Half-Day Deductions',
+      `${stats.halfday} Half-Day(s) × 50% Daily Rate`,
+      `-${formatINR(Math.round((stats.halfday || 0) * 0.5 * (stats.dailyRate || 0)))}`
+    ]);
+  }
+
+  if ((stats.otMinutes || 0) > 0) {
+    calcRows.push([
+      'Overtime (OT) Earnings',
+      `${stats.otMinutes} mins logged beyond 6:00 PM buffer @ 1.5x rate`,
+      `+${formatINR(stats.otPay || 0)}`
+    ]);
+  }
+
+  if (isEligible) {
+    calcRows.push([
+      'Full Present Bonus (+2 Days Extra Salary)',
+      '100% Full Attendance Incentive (2 Days Prorated Salary)',
+      `+${formatINR(stats.fullPresentBonus || 0)}`
+    ]);
+  } else if ((stats.absent || 0) > 0) {
+    calcRows.push([
+      'Full Present Bonus (+2 Days Extra Salary)',
+      `Requires 0 Absences (Staff had ${stats.absent} absences)`,
+      'Rs. 0'
+    ]);
+  }
+
+  calcRows.push([
+    'TOTAL NET PAYABLE SALARY',
+    'Net Bank Transfer / Disbursal Amount',
+    formatINR(stats.netTotalPayout || stats.finalPayableSalary || 0)
+  ]);
 
   autoTable(doc, {
     startY: isEligible ? policyY + 12 : policyY + 11,

@@ -261,42 +261,62 @@ export default function AttendanceReports() {
     if (isLateArrival(r.clock_in, r.status)) deptStats[dept].late += 1;
   });
 
-  // Calculate Employee Payroll with all 20 required report fields & Full Attendance Bonus
+  // Calculate Employee Payroll with Government Holiday Rules, Unpaid Leave & Full Attendance Bonus
   const payrollStats = useMemo(() => {
     const { sundaysCount, workingDays } = calendarInfo;
 
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
-      let present = 0;
-      let absent = 0;
+      let normalPresent = 0;
+      let govtHolidayWorked = 0;
+      let govtHolidayGranted = 0;
+      let ownLeaveDays = 0;
+      let otherAbsent = 0;
       let halfday = 0;
       let paidLeaveDays = 0;
       let late = 0;
       let otMinutes = 0;
 
       records.forEach(r => {
-        const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
-        const isLeave = r.status === 'leave' || r.status === 'paid_leave';
-        const isLate = !isOD && isLateArrival(r.clock_in, r.status);
-        
-        if (isLeave) {
-          paidLeaveDays += 1;
-          present += 1;
-        } else if (isOD) {
-          paidLeaveDays += 1;
-          present += 1;
-        } else if (isLate) {
-          present += 1;
-          late += 1;
-        } else if (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) {
-          present += 1;
-        } else if (r.status === 'absent') {
-          absent += 1;
-        } else if (r.status === 'half_day') {
-          halfday += 1;
+        const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
+        const isGovtLeave = r.holiday_type === 'govt_holiday_leave';
+        const isOwnLeave = r.holiday_type === 'own_leave';
+
+        if (isGovtWorked) {
+          govtHolidayWorked += 1;
+        } else if (isGovtLeave) {
+          govtHolidayGranted += 1;
+        } else if (isOwnLeave) {
+          ownLeaveDays += 1;
+        } else {
+          // Normal Working Day
+          const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+          const isLeave = r.status === 'leave' || r.status === 'paid_leave';
+          const isLate = !isOD && isLateArrival(r.clock_in, r.status);
+          
+          if (isLeave) {
+            paidLeaveDays += 1;
+            normalPresent += 1;
+          } else if (isOD) {
+            paidLeaveDays += 1;
+            normalPresent += 1;
+          } else if (isLate) {
+            normalPresent += 1;
+            late += 1;
+          } else if (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) {
+            normalPresent += 1;
+          } else if (r.status === 'absent') {
+            otherAbsent += 1;
+          } else if (r.status === 'half_day') {
+            halfday += 1;
+          }
         }
+
         if (r.ot_minutes > 0) otMinutes += r.ot_minutes;
       });
+
+      const totalPresent = normalPresent + govtHolidayWorked + govtHolidayGranted;
+      const totalAbsent = ownLeaveDays + otherAbsent;
 
       const baseSalary = Number(emp.salary || 0);
       const dailyRate = baseSalary > 0 ? Math.round(baseSalary / 30) : 0;
@@ -305,19 +325,30 @@ export default function AttendanceReports() {
       const otPay = Math.round(otMinutes * otRatePerMin);
       const otHours = Number((otMinutes / 60).toFixed(2));
 
-      // Deductions: Absent days + half-days
-      const deductions = Math.round(absent * dailyRate + halfday * 0.5 * dailyRate);
-      const earnedBase = Math.max(0, Math.round(baseSalary - deductions));
-
-      // Policy: If 100% full present (0 absences, 0 half-days, with at least 1 shift logged),
-      // employee receives 2 days extra salary bonus!
-      const isFullPresentEligible = absent === 0 && halfday === 0 && present > 0;
-      const doubleSalaryDays = isFullPresentEligible ? 2 : 0;
-      const fullPresentBonus = Math.round(doubleSalaryDays * dailyRate);
+      // Rule 1: Govt Holiday Worked = Double Salary for that day (2× Daily Rate).
+      // Since 1× Daily Rate is already part of base salary, extra bonus to disburse is 1× Daily Rate!
+      // Rule 2: Govt Holiday Office Granted = 1× Normal Salary (Paid by Office, 0 deduction).
+      // Rule 3: Employee Own Leave = Unpaid Leave (-1× Daily Rate deducted).
+      const unpaidLeaveDeductions = Math.round(ownLeaveDays * dailyRate);
+      const otherDeductions = Math.round(otherAbsent * dailyRate + halfday * 0.5 * dailyRate);
+      const totalDeductions = unpaidLeaveDeductions + otherDeductions;
       
+      const normalSalary = Math.max(0, Math.round(baseSalary - totalDeductions));
+
+      // Full attendance bonus: 0 absences, 0 half days, and worked at least 1 shift
+      const isFullPresentEligible = totalAbsent === 0 && halfday === 0 && totalPresent > 0;
+      const fullPresentBonusDays = isFullPresentEligible ? 2 : 0;
+      const fullPresentBonus = Math.round(fullPresentBonusDays * dailyRate);
+
+      // Double-Salary Days: Govt Holidays Worked + Full Attendance Bonus days (if qualified)
+      const doubleSalaryDays = govtHolidayWorked + fullPresentBonusDays;
+      const holidayExtraSalary = Math.round(govtHolidayWorked * dailyRate) + fullPresentBonus;
+
       const otherAllowances = 0;
-      const totalMonthlySalary = baseSalary + otPay + fullPresentBonus + otherAllowances;
-      const finalPayableSalary = Math.max(0, totalMonthlySalary - deductions);
+      const totalMonthlySalary = baseSalary + otPay + holidayExtraSalary + otherAllowances;
+      
+      // Final Payable Salary: Normal Salary + Holiday Extra Salary + OT + Allowances
+      const finalPayableSalary = Math.max(0, normalSalary + holidayExtraSalary + otPay + otherAllowances);
       const netTotalPayout = finalPayableSalary;
 
       return {
@@ -329,9 +360,14 @@ export default function AttendanceReports() {
         baseSalary,
         dailyRate,
         workingDays,
-        present,
+        present: totalPresent,
+        normalPresent,
+        govtHolidayWorked,
+        govtHolidayGranted,
+        ownLeaveDays,
+        absent: totalAbsent,
+        otherAbsent,
         late,
-        absent,
         halfday,
         paidLeaveDays,
         weeklyOffs: sundaysCount,
@@ -339,12 +375,15 @@ export default function AttendanceReports() {
         otHours,
         otPay,
         doubleSalaryDays,
-        doubleSalaryAmount: fullPresentBonus,
-        otherAllowances,
-        deductions,
+        holidayExtraSalary,
+        doubleSalaryAmount: holidayExtraSalary,
+        unpaidLeaveDeductions,
+        otherDeductions,
+        deductions: totalDeductions,
+        normalSalary,
+        earnedBase: normalSalary,
         totalMonthlySalary,
         finalPayableSalary,
-        earnedBase,
         isFullPresentEligible,
         fullPresentBonus,
         netTotalPayout
@@ -353,8 +392,12 @@ export default function AttendanceReports() {
   }, [employees, data, calendarInfo]);
 
   // Aggregate Payroll Totals
-  const totalPayroll = payrollStats.reduce((sum, p) => sum + p.netTotalPayout, 0);
-  const totalFullPresentBonuses = payrollStats.reduce((sum, p) => sum + p.fullPresentBonus, 0);
+  const totalPayroll = payrollStats.reduce((sum, p) => sum + p.finalPayableSalary, 0);
+  const totalGovtWorked = payrollStats.reduce((sum, p) => sum + p.govtHolidayWorked, 0);
+  const totalGovtGranted = payrollStats.reduce((sum, p) => sum + p.govtHolidayGranted, 0);
+  const totalOwnLeave = payrollStats.reduce((sum, p) => sum + p.ownLeaveDays, 0);
+  const totalHolidayExtra = payrollStats.reduce((sum, p) => sum + p.holidayExtraSalary, 0);
+  const totalUnpaidDeductions = payrollStats.reduce((sum, p) => sum + p.unpaidLeaveDeductions, 0);
   const fullPresentCount = payrollStats.filter(p => p.isFullPresentEligible).length;
   const totalOtDisbursed = payrollStats.reduce((sum, p) => sum + p.otPay, 0);
 
@@ -597,23 +640,23 @@ export default function AttendanceReports() {
             <div className="text-lg font-black text-slate-900 font-mono mt-0.5">
               ₹{totalPayroll.toLocaleString('en-IN')}
             </div>
-            <span className="text-[10px] text-slate-400">All staff combined</span>
+            <span className="text-[10px] text-slate-400">All staff net payout combined</span>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-amber-200 bg-amber-50/20">
-            <span className="text-[10px] text-amber-800 uppercase font-bold block">Full Present Bonuses (+2 Days)</span>
+            <span className="text-[10px] text-amber-800 uppercase font-bold block">Holiday Extra & 2× Bonuses</span>
             <div className="text-lg font-black text-amber-800 font-mono mt-0.5">
-              +₹{totalFullPresentBonuses.toLocaleString('en-IN')}
+              +₹{totalHolidayExtra.toLocaleString('en-IN')}
             </div>
-            <span className="text-[10px] text-amber-700 font-semibold">{fullPresentCount} staff with 0 absences</span>
+            <span className="text-[10px] text-amber-700 font-semibold">{totalGovtWorked} Govt Worked shifts + bonuses</span>
           </div>
 
-          <div className="bg-white p-3 rounded-xl border border-slate-200">
-            <span className="text-[10px] text-slate-500 uppercase font-bold block">Total Overtime Pay</span>
-            <div className="text-lg font-black text-slate-900 font-mono mt-0.5">
-              +₹{totalOtDisbursed.toLocaleString('en-IN')}
+          <div className="bg-white p-3 rounded-xl border border-rose-200 bg-rose-50/20">
+            <span className="text-[10px] text-rose-800 uppercase font-bold block">Unpaid Leave Deductions</span>
+            <div className="text-lg font-black text-rose-800 font-mono mt-0.5">
+              -₹{totalUnpaidDeductions.toLocaleString('en-IN')}
             </div>
-            <span className="text-[10px] text-slate-400">Beyond 6:00 PM buffer</span>
+            <span className="text-[10px] text-rose-700 font-semibold">{totalOwnLeave} Employee Own Leaves</span>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-slate-200">
@@ -621,7 +664,7 @@ export default function AttendanceReports() {
             <div className="text-lg font-black text-slate-900 font-mono mt-0.5">
               {payrollStats.length} Employees
             </div>
-            <span className="text-[10px] text-emerald-600 font-semibold">Active team</span>
+            <span className="text-[10px] text-emerald-600 font-semibold">Active team coverage</span>
           </div>
         </div>
 
@@ -632,11 +675,12 @@ export default function AttendanceReports() {
               <tr>
                 <th className="px-4 py-3">Employee</th>
                 <th className="px-4 py-3">Department</th>
-                <th className="px-4 py-3">Monthly Base & Earned Salary</th>
-                <th className="px-4 py-3">Attendance & Late Days</th>
+                <th className="px-4 py-3">Monthly Basic & Normal Salary</th>
+                <th className="px-4 py-3">Attendance & Holidays Breakdown</th>
                 <th className="px-4 py-3">Overtime</th>
-                <th className="px-4 py-3">Full Present Bonus (+2 Days)</th>
-                <th className="px-4 py-3 text-right">Net Month Salary (Payout)</th>
+                <th className="px-4 py-3">Govt Holiday / 2× Extra Bonus</th>
+                <th className="px-4 py-3">Unpaid Leave Deductions</th>
+                <th className="px-4 py-3 text-right">Final Payable Salary</th>
                 <th className="px-3 py-3 text-center">Single Slip</th>
               </tr>
             </thead>
@@ -664,17 +708,43 @@ export default function AttendanceReports() {
                     <div>₹{p.baseSalary.toLocaleString('en-IN')}</div>
                     <span className="block text-[10px] text-slate-400 font-normal">₹{p.dailyRate}/day</span>
                     <span className="block text-[11px] text-emerald-700 font-bold mt-0.5">
-                      Earned: ₹{p.earnedBase.toLocaleString('en-IN')}
+                      Normal: ₹{p.normalSalary.toLocaleString('en-IN')}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="space-y-1">
                       <div className="flex items-center space-x-1.5 text-[11px] flex-wrap">
-                        <span className="text-emerald-700 font-semibold">{p.present} Present</span>
-                        <span>•</span>
-                        <span className={p.absent > 0 ? "text-rose-600 font-bold" : "text-slate-400"}>
-                          {p.absent} Absent
-                        </span>
+                        <span className="text-emerald-700 font-semibold">{p.normalPresent} Normal</span>
+                        {p.govtHolidayWorked > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded font-black text-amber-900 bg-amber-100 border border-amber-300">
+                              🏛️ {p.govtHolidayWorked} Govt Worked (2×)
+                            </span>
+                          </>
+                        )}
+                        {p.govtHolidayGranted > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded font-bold text-blue-900 bg-blue-100 border border-blue-200">
+                              🏢 {p.govtHolidayGranted} Govt Leave (Paid)
+                            </span>
+                          </>
+                        )}
+                        {p.ownLeaveDays > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded font-bold text-rose-900 bg-rose-100 border border-rose-300">
+                              ⛔ {p.ownLeaveDays} Own Leave (Unpaid)
+                            </span>
+                          </>
+                        )}
+                        {p.otherAbsent > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-rose-600 font-bold">{p.otherAbsent} Absent</span>
+                          </>
+                        )}
                         {p.halfday > 0 && (
                           <>
                             <span>•</span>
@@ -684,7 +754,7 @@ export default function AttendanceReports() {
                         {p.paidLeaveDays > 0 && (
                           <>
                             <span>•</span>
-                            <span className="text-purple-700 font-semibold">{p.paidLeaveDays} Leave/OD</span>
+                            <span className="text-purple-700 font-semibold">{p.paidLeaveDays} Paid Leave/OD</span>
                           </>
                         )}
                       </div>
@@ -710,28 +780,54 @@ export default function AttendanceReports() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {p.isFullPresentEligible ? (
-                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black border border-amber-300 shadow-2xs">
-                        <Award className="w-3.5 h-3.5 text-amber-600" />
-                        <span>🏆 +2 Days Salary (+₹{p.fullPresentBonus.toLocaleString('en-IN')})</span>
-                      </span>
+                    {p.holidayExtraSalary > 0 ? (
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black border border-amber-300 shadow-2xs">
+                          <Award className="w-3.5 h-3.5 text-amber-600" />
+                          <span>+₹{p.holidayExtraSalary.toLocaleString('en-IN')} (2× Extra)</span>
+                        </span>
+                        {p.govtHolidayWorked > 0 && (
+                          <span className="block text-[9px] text-amber-800 font-bold">
+                            Govt Worked: {p.govtHolidayWorked}d (+₹{p.govtHolidayWorked * p.dailyRate})
+                          </span>
+                        )}
+                        {p.isFullPresentEligible && (
+                          <span className="block text-[9px] text-emerald-700 font-bold">
+                            Bonus: +2 Days (+₹{p.fullPresentBonus})
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium border border-slate-200">
-                        <span>Standard ({p.absent} Absents)</span>
+                        <span>Standard (₹0 Extra)</span>
                       </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.deductions > 0 ? (
+                      <div className="font-mono text-rose-700 font-bold">
+                        <div>-₹{p.deductions.toLocaleString('en-IN')}</div>
+                        {p.unpaidLeaveDeductions > 0 && (
+                          <span className="block text-[10px] text-rose-600 font-normal">
+                            Own Leave: -₹{p.unpaidLeaveDeductions}
+                          </span>
+                        )}
+                        {p.otherDeductions > 0 && (
+                          <span className="block text-[10px] text-slate-500 font-normal">
+                            Other LOP: -₹{p.otherDeductions}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-emerald-700 font-bold text-[11px]">₹0 Deductions</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="font-mono font-black text-sm text-[#8b0000]">
                       ₹{p.finalPayableSalary.toLocaleString('en-IN')}
                     </div>
-                    {p.deductions > 0 && (
-                      <span className="text-[10px] text-rose-600 font-semibold block">
-                        -₹{p.deductions.toLocaleString('en-IN')} (LOP)
-                      </span>
-                    )}
                     <span className="text-[10px] text-slate-500 font-bold block">
-                      Net Payout ({p.isFullPresentEligible ? 'Base + Bonus + OT' : 'Base - LOP + OT'})
+                      Net Payout (Normal + Extra + OT)
                     </span>
                   </td>
                   <td className="px-3 py-3 text-center">

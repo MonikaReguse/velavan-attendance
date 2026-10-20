@@ -1366,7 +1366,9 @@ app.get('/api/attendance/today', (req, res) => {
         a.id, a.emp_id, a.date, a.clock_in, a.clock_out, a.total_hours,
         COALESCE(a.ot_hours, 0) as ot_hours,
         COALESCE(a.ot_minutes, 0) as ot_minutes,
-        a.status, a.punch_photo, a.method, a.notes, a.created_at,
+        a.status, 
+        COALESCE(a.holiday_type, 'normal') as holiday_type,
+        a.punch_photo, a.method, a.notes, a.created_at,
         COALESCE(e.name, a.emp_id) as employee_name, 
         COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
@@ -1443,7 +1445,9 @@ app.get('/api/attendance/history', (req, res) => {
         a.id, a.emp_id, a.date, a.clock_in, a.clock_out, a.total_hours,
         COALESCE(a.ot_hours, 0) as ot_hours,
         COALESCE(a.ot_minutes, 0) as ot_minutes,
-        a.status, a.punch_photo, a.method, a.notes,
+        a.status,
+        COALESCE(a.holiday_type, 'normal') as holiday_type,
+        a.punch_photo, a.method, a.notes,
         COALESCE(e.name, a.emp_id) as employee_name, 
         COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
@@ -1523,7 +1527,7 @@ app.get('/api/attendance/record', (req, res) => {
 // Admin Manual Attendance Adjustment (Create or Update)
 app.post('/api/attendance/manual', (req, res) => {
   try {
-    const { id, emp_id, date, clock_in, clock_out, status, notes, ot_minutes } = req.body;
+    const { id, emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type } = req.body;
     if (!emp_id) {
       return res.status(400).json({ error: 'Employee ID is required.' });
     }
@@ -1562,6 +1566,9 @@ app.post('/api/attendance/manual', (req, res) => {
           existing = byId;
         }
       }
+
+      // Holiday Type determination
+      const finalHolidayType = (holiday_type && String(holiday_type).trim()) ? String(holiday_type).trim() : (existing?.holiday_type || 'normal');
 
       // 2. Determine clean clock_in & clock_out
       // PRESERVE FACELOCK TIME: If employee clocked in via FaceLock and new clock_in is empty/'--', keep original FaceLock clock_in!
@@ -1619,7 +1626,7 @@ app.post('/api/attendance/manual', (req, res) => {
         // UPDATE existing record safely without creating duplicates
         db.prepare(`
           UPDATE attendance
-          SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?
+          SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?, holiday_type = ?
           WHERE id = ?
         `).run(
           emp_id,
@@ -1633,6 +1640,7 @@ app.post('/api/attendance/manual', (req, res) => {
           finalNotes,
           methodToKeep,
           photoToKeep,
+          finalHolidayType,
           existing.id
         );
         resultId = existing.id;
@@ -1640,8 +1648,8 @@ app.post('/api/attendance/manual', (req, res) => {
       } else {
         // INSERT new record safely
         const ins = db.prepare(`
-          INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+          INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo, holiday_type)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
         `).run(
           emp_id,
           date,
@@ -1652,7 +1660,8 @@ app.post('/api/attendance/manual', (req, res) => {
           finalOtMinutes,
           status,
           finalNotes,
-          photoToKeep
+          photoToKeep,
+          finalHolidayType
         );
         resultId = ins.lastInsertRowid;
         isUpdate = false;
@@ -1690,7 +1699,7 @@ app.post('/api/attendance/manual', (req, res) => {
 app.put('/api/attendance/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes } = req.body;
+    const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type } = req.body;
     if (emp_id) {
       const emp = db.prepare('SELECT id, emp_id, name FROM employees WHERE emp_id = ?').get(emp_id);
       if (!emp) {
@@ -1741,9 +1750,9 @@ app.put('/api/attendance/:id', (req, res) => {
 
     db.prepare(`
       UPDATE attendance
-      SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual'
+      SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual', holiday_type = COALESCE(?, holiday_type, 'normal')
       WHERE id = ?
-    `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', id);
+    `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', holiday_type, id);
     saveDbSnapshot();
     res.json({ success: true, updated: true, id });
   } catch (err) {
@@ -1863,7 +1872,7 @@ app.get('/api/reports/export', (req, res) => {
     let query = `
       SELECT 
         a.date, a.emp_id, COALESCE(e.name, a.emp_id) as employee_name, COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department,
-        a.clock_in, a.clock_out, a.total_hours, COALESCE(a.ot_minutes, 0) as ot_minutes, a.status, a.method, a.notes
+        a.clock_in, a.clock_out, a.total_hours, COALESCE(a.ot_minutes, 0) as ot_minutes, a.status, COALESCE(a.holiday_type, 'normal') as holiday_type, a.method, a.notes
       FROM attendance a
       LEFT JOIN employees e ON a.emp_id = e.emp_id
       WHERE 1=1
@@ -1877,9 +1886,9 @@ app.get('/api/reports/export', (req, res) => {
 
     const records = db.prepare(query).all(...params);
 
-    let csv = 'Date,Employee ID,Employee Name,Department,Clock In,Clock Out,Total Hours,OT Minutes,Status,Method,Notes\r\n';
+    let csv = 'Date,Employee ID,Employee Name,Department,Clock In,Clock Out,Total Hours,OT Minutes,Status,Holiday / Leave Type,Method,Notes\r\n';
     for (const r of records) {
-      csv += `"${r.date}","${r.emp_id}","${r.employee_name}","${r.department}","${r.clock_in || ''}","${r.clock_out || ''}",${r.total_hours || 0},${r.ot_minutes || 0},"${r.status}","${r.method}","${(r.notes || '').replace(/"/g, '""')}"\r\n`;
+      csv += `"${r.date}","${r.emp_id}","${r.employee_name}","${r.department}","${r.clock_in || ''}","${r.clock_out || ''}",${r.total_hours || 0},${r.ot_minutes || 0},"${r.status}","${r.holiday_type || 'normal'}","${r.method}","${(r.notes || '').replace(/"/g, '""')}"\r\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
