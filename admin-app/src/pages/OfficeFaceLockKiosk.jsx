@@ -678,7 +678,8 @@ export default function OfficeFaceLockKiosk() {
                 </div>
               ) : (
                 todayPunches.map((item) => {
-                  const isLate = item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00');
+                  const isOD = item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD';
+                  const isLate = !isOD && (item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00'));
                   const hasOt = item.ot_hours > 0;
 
                   return (
@@ -708,15 +709,19 @@ export default function OfficeFaceLockKiosk() {
 
                       <div className="text-right space-y-0.5">
                         <div className="font-mono font-bold text-slate-800 text-[11px]">
-                          IN: {formatTime(item.clock_in)}
+                          IN: {item.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_in)}
                           {item.clock_out && (
                             <span className="text-blue-600 ml-1.5 font-bold">
-                              OUT: {formatTime(item.clock_out)}
+                              OUT: {item.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_out)}
                             </span>
                           )}
                         </div>
                         <div>
-                          {isLate ? (
+                          {isOD ? (
+                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                              {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
+                            </span>
+                          ) : isLate ? (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                               Late Arrival
                             </span>

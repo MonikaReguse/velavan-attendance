@@ -126,7 +126,10 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
     const outDisplay = r.clock_out ? formatTime(r.clock_out) : '--';
 
     let statusText = 'PRESENT\n(On-Time)';
-    if (r.status === 'absent') {
+    const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+    if (isOD) {
+      statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
+    } else if (r.status === 'absent') {
       statusText = 'ABSENT';
     } else if (r.status === 'weekly_off') {
       statusText = 'WEEKLY OFF';
@@ -942,7 +945,10 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     const outDisplay = r.clock_out ? formatTime(r.clock_out) : '--';
 
     let statusText = 'PRESENT\n(On-Time)';
-    if (r.status === 'absent') {
+    const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+    if (isOD) {
+      statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
+    } else if (r.status === 'absent') {
       statusText = 'ABSENT';
     } else if (r.status === 'half_day') {
       statusText = 'HALF-DAY';

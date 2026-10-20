@@ -146,8 +146,12 @@ function getSettings() {
 // Helper: Calculate total hours between two HH:MM:SS strings
 function calculateHours(timeIn, timeOut) {
   if (!timeIn || !timeOut) return 0;
+  if (timeIn === 'OD' || timeOut === 'OD' || timeIn === '--' || timeOut === '--') {
+    return 8.5;
+  }
   const [h1, m1, s1 = 0] = timeIn.split(':').map(Number);
   const [h2, m2, s2 = 0] = timeOut.split(':').map(Number);
+  if (isNaN(h1) || isNaN(h2)) return 8.5;
   const d1 = new Date(2000, 0, 1, h1, m1, s1);
   const d2 = new Date(2000, 0, 1, h2, m2, s2);
   let diffMs = d2 - d1;
@@ -156,15 +160,8 @@ function calculateHours(timeIn, timeOut) {
 }
 
 // Helper: Calculate Overtime (OT) hours based on dynamic late-entry offset and 20-min buffer rule:
-// 1. Office regular end time is 18:00 (6:00 PM).
-// 2. An employee arriving on-time (<= 09:30 AM) has regular shift end 18:00 (6:00 PM) and OT buffer 18:20 (6:20 PM).
-//    If clocked out > 18:20, OT is calculated from 18:00 (6:00 PM).
-// 3. For an employee arriving late (e.g. 09:40 AM -> 10 mins late, 09:50 AM -> 20 mins late),
-//    their required shift end shifts forward by that late duration (18:10 for 9:40, 18:20 for 9:50).
-//    Their OT buffer also shifts (18:30 for 9:40, 18:40 for 9:50).
-//    Once they work past that adjusted threshold, OT is calculated from their shifted shift end!
 function calculateOT(timeOut, timeIn = '09:30', officeStartTime = '09:30', officeEndTime = '18:00', bufferMinutes = 20) {
-  if (!timeOut || timeOut === '--') return { otHours: 0, otMinutes: 0 };
+  if (!timeOut || timeOut === '--' || timeOut === 'OD' || timeIn === 'OD') return { otHours: 0, otMinutes: 0 };
 
   const toMinutes = (timeStr) => {
     if (!timeStr || timeStr === '--') return 0;
@@ -1551,18 +1548,25 @@ app.post('/api/attendance/manual', (req, res) => {
       let otHours = 0;
       let finalOtMinutes = 0;
 
-      const hasValidTimes = finalClockIn !== '--' && finalClockOut !== '--' && status !== 'absent' && status !== 'weekly_off';
-      if (hasValidTimes) {
-        totalHours = calculateHours(finalClockIn, finalClockOut);
-        const ot = calculateOT(
-          finalClockOut,
-          finalClockIn,
-          settings.office_start_time || '09:30',
-          settings.office_end_time || '18:00',
-          parseInt(settings.ot_buffer_minutes || '20', 10)
-        );
-        otHours = ot.otHours;
-        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+      const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || finalClockIn === 'OD' || finalClockOut === 'OD';
+      if (isOD) {
+        totalHours = 8.5;
+        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
+        otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
+      } else {
+        const hasValidTimes = finalClockIn !== '--' && finalClockOut !== '--' && status !== 'absent' && status !== 'weekly_off';
+        if (hasValidTimes) {
+          totalHours = calculateHours(finalClockIn, finalClockOut);
+          const ot = calculateOT(
+            finalClockOut,
+            finalClockIn,
+            settings.office_start_time || '09:30',
+            settings.office_end_time || '18:00',
+            parseInt(settings.ot_buffer_minutes || '20', 10)
+          );
+          otHours = ot.otHours;
+          finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+        }
       }
 
       // PRESERVE BIOMETRIC PUNCH PHOTO & METHOD: If existing record has biometric FaceLock photo, NEVER erase or wipe it!
@@ -1668,18 +1672,25 @@ app.put('/api/attendance/:id', (req, res) => {
     let otHours = 0;
     let finalOtMinutes = 0;
 
-    const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
-    if (hasValidTimes) {
-      totalHours = calculateHours(clock_in, clock_out);
-      const ot = calculateOT(
-        clock_out,
-        clock_in,
-        settings.office_start_time || '09:30',
-        settings.office_end_time || '18:00',
-        parseInt(settings.ot_buffer_minutes || '20', 10)
-      );
-      otHours = ot.otHours;
-      finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+    const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || clock_in === 'OD' || clock_out === 'OD';
+    if (isOD) {
+      totalHours = 8.5;
+      finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
+      otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
+    } else {
+      const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
+      if (hasValidTimes) {
+        totalHours = calculateHours(clock_in, clock_out);
+        const ot = calculateOT(
+          clock_out,
+          clock_in,
+          settings.office_start_time || '09:30',
+          settings.office_end_time || '18:00',
+          parseInt(settings.ot_buffer_minutes || '20', 10)
+        );
+        otHours = ot.otHours;
+        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+      }
     }
 
     const cleanIn = (clock_in && String(clock_in).trim() && String(clock_in).trim() !== 'null' && String(clock_in).trim() !== 'undefined') ? String(clock_in).trim() : '--';

@@ -6,6 +6,7 @@ export function formatTime(timeStr) {
   if (!timeStr || timeStr === '--' || typeof timeStr !== 'string') return '--';
   const clean = timeStr.trim();
   if (!clean || clean === '--') return '--';
+  if (clean.toUpperCase() === 'OD' || clean.toUpperCase() === 'ON DUTY') return 'OD';
 
   // If already formatted with AM/PM, return as is
   if (/am|pm/i.test(clean)) return clean;

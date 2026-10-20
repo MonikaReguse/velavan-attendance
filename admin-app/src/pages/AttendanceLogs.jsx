@@ -293,8 +293,11 @@ export default function AttendanceLogs() {
           >
             <option value="">All Statuses</option>
             <option value="present">Present (On Time)</option>
+            <option value="od">On Duty (OD)</option>
             <option value="late">Late Arrival</option>
             <option value="half_day">Half Day</option>
+            <option value="absent">Absent</option>
+            <option value="weekly_off">Weekly Off</option>
           </select>
         </div>
 
@@ -318,8 +321,8 @@ export default function AttendanceLogs() {
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Employee</th>
                 <th className="px-4 py-3">Department</th>
-                <th className="px-4 py-3">Clock In</th>
-                <th className="px-4 py-3">Clock Out</th>
+                <th className="px-4 py-3">Clock In / Login</th>
+                <th className="px-4 py-3">Clock Out / Logout</th>
                 <th className="px-4 py-3">Hours</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Verification</th>
@@ -385,7 +388,13 @@ export default function AttendanceLogs() {
                       </td>
                       <td className="px-4 py-3 text-slate-600">{displayDept}</td>
                       <td className="px-4 py-3 font-mono text-slate-700 font-semibold">
-                        {formatTime(log.clock_in)}
+                        {log.clock_in === 'OD' ? (
+                          <span className="px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">
+                            OD (On Duty)
+                          </span>
+                        ) : (
+                          formatTime(log.clock_in)
+                        )}
                         {isLate && (
                           <span className="block text-[10px] text-amber-700 font-bold">
                             (Late +${lateMins > 0 ? lateMins : 1}m)
@@ -393,7 +402,11 @@ export default function AttendanceLogs() {
                         )}
                       </td>
                       <td className="px-4 py-3 font-mono text-slate-700">
-                        {!isOngoing ? (
+                        {log.clock_out === 'OD' ? (
+                          <span className="px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">
+                            OD (On Duty)
+                          </span>
+                        ) : !isOngoing ? (
                           formatTime(log.clock_out)
                         ) : (
                           <span className="inline-flex items-center text-emerald-600 font-medium italic">
@@ -417,19 +430,25 @@ export default function AttendanceLogs() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            isLate
-                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : isHalfDay
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                              : isAbsent
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          }`}
-                        >
-                          {isLate ? `Late Arrival (+${lateMins > 0 ? lateMins : 1}m)` : isHalfDay ? 'Half Day' : isAbsent ? 'Absent' : 'Present'}
-                        </span>
+                        {log.status === 'od' || log.status === 'login_od' || log.status === 'logout_od' || log.clock_in === 'OD' || log.clock_out === 'OD' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            {log.status === 'login_od' ? 'Login OD' : log.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              isLate
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : isHalfDay
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : isAbsent
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {isLate ? `Late Arrival (+${lateMins > 0 ? lateMins : 1}m)` : isHalfDay ? 'Half Day' : isAbsent ? 'Absent' : 'Present'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center space-x-1 text-[11px] font-medium text-slate-600">
@@ -524,38 +543,94 @@ export default function AttendanceLogs() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Clock In (HH:MM:SS)</label>
-                  <input
-                    type="time"
-                    step="1"
-                    disabled={formData.status === 'absent' || formData.status === 'weekly_off'}
-                    value={formData.clock_in}
-                    onChange={(e) => setFormData({ ...formData, clock_in: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono disabled:opacity-40"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-semibold text-xs">Clock In / Login</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (formData.clock_in === 'OD') {
+                          setFormData({ ...formData, clock_in: '09:30:00' });
+                        } else {
+                          setFormData({ ...formData, clock_in: 'OD', status: formData.clock_out === 'OD' ? 'od' : 'login_od' });
+                        }
+                      }}
+                      className="text-[10px] text-indigo-700 font-bold hover:underline"
+                    >
+                      {formData.clock_in === 'OD' ? 'Set Time' : '+ OD'}
+                    </button>
+                  </div>
+                  {formData.clock_in === 'OD' ? (
+                    <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 font-bold text-xs">
+                      OD (On Duty)
+                    </div>
+                  ) : (
+                    <input
+                      type="time"
+                      step="1"
+                      disabled={formData.status === 'absent' || formData.status === 'weekly_off'}
+                      value={formData.clock_in}
+                      onChange={(e) => setFormData({ ...formData, clock_in: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono disabled:opacity-40"
+                    />
+                  )}
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Clock Out (HH:MM:SS)</label>
-                  <input
-                    type="time"
-                    step="1"
-                    disabled={formData.status === 'absent' || formData.status === 'weekly_off'}
-                    value={formData.clock_out}
-                    onChange={(e) => setFormData({ ...formData, clock_out: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono disabled:opacity-40"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-semibold text-xs">Clock Out / Logout</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (formData.clock_out === 'OD') {
+                          setFormData({ ...formData, clock_out: '18:00:00' });
+                        } else {
+                          setFormData({ ...formData, clock_out: 'OD', status: formData.clock_in === 'OD' ? 'od' : 'logout_od' });
+                        }
+                      }}
+                      className="text-[10px] text-indigo-700 font-bold hover:underline"
+                    >
+                      {formData.clock_out === 'OD' ? 'Set Time' : '+ OD'}
+                    </button>
+                  </div>
+                  {formData.clock_out === 'OD' ? (
+                    <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 font-bold text-xs">
+                      OD (On Duty)
+                    </div>
+                  ) : (
+                    <input
+                      type="time"
+                      step="1"
+                      disabled={formData.status === 'absent' || formData.status === 'weekly_off'}
+                      value={formData.clock_out}
+                      onChange={(e) => setFormData({ ...formData, clock_out: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono disabled:opacity-40"
+                    />
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Status</label>
+                  <label className="block text-slate-700 font-semibold mb-1 text-xs">Status</label>
                   <select
                     value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === 'od') {
+                        setFormData({ ...formData, status: next, clock_in: 'OD', clock_out: 'OD' });
+                      } else if (next === 'login_od') {
+                        setFormData({ ...formData, status: next, clock_in: 'OD', clock_out: formData.clock_out === 'OD' ? '18:00:00' : formData.clock_out });
+                      } else if (next === 'logout_od') {
+                        setFormData({ ...formData, status: next, clock_in: formData.clock_in === 'OD' ? '09:30:00' : formData.clock_in, clock_out: 'OD' });
+                      } else {
+                        setFormData({ ...formData, status: next });
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs"
                   >
                     <option value="present">Present (On Time)</option>
+                    <option value="od">On Duty (OD - Full Day)</option>
+                    <option value="login_od">Login OD (Morning Duty)</option>
+                    <option value="logout_od">Logout OD (Evening Duty)</option>
                     <option value="late">Late Arrival</option>
                     <option value="half_day">Half Day</option>
                     <option value="absent">Absent (Loss of Pay)</option>

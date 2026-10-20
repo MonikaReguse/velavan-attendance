@@ -260,12 +260,22 @@ export default function ManualAttendanceUpdate() {
 
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
-    if (status === 'absent' || !clockIn || !clockOut || clockIn === '--' || clockOut === '--') {
+    if (status === 'absent' || (!clockIn && !clockOut) || (clockIn === '--' && clockOut === '--')) {
       return { totalHours: 0, otMinutes: 0, previewStatus: status };
     }
 
+    // On Duty (OD) counts as standard full working day (8.5 hrs)
+    const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || clockIn === 'OD' || clockOut === 'OD';
+    if (isOD) {
+      let ot = 0;
+      if (customOtMinutes !== '' && !isNaN(Number(customOtMinutes))) {
+        ot = Number(customOtMinutes);
+      }
+      return { totalHours: 8.5, otMinutes: ot, previewStatus: 'od' };
+    }
+
     const toMins = (t) => {
-      if (!t) return 0;
+      if (!t || t === '--' || t === 'OD') return 0;
       const [h, m] = t.split(':').map(Number);
       return (h || 0) * 60 + (m || 0);
     };
@@ -304,6 +314,24 @@ export default function ManualAttendanceUpdate() {
       setStatus('present');
       setCustomOtMinutes('');
       setNotes('Full Day (On-Time 09:30 AM – 06:00 PM)');
+    } else if (presetName === 'od_full') {
+      setClockIn('OD');
+      setClockOut('OD');
+      setStatus('od');
+      setCustomOtMinutes('0');
+      setNotes('Full Day OD (On Duty - Official Client / Site Visit)');
+    } else if (presetName === 'od_login') {
+      setClockIn('OD');
+      setClockOut('18:00:00');
+      setStatus('login_od');
+      setCustomOtMinutes('');
+      setNotes('Morning OD (Login On Duty - Client / Field Work)');
+    } else if (presetName === 'od_logout') {
+      setClockIn('09:30:00');
+      setClockOut('OD');
+      setStatus('logout_od');
+      setCustomOtMinutes('');
+      setNotes('Evening OD (Logout On Duty - Client / Site Visit)');
     } else if (presetName === 'ot_20') {
       setClockIn('09:30:00');
       setClockOut('18:20:00');
@@ -781,6 +809,42 @@ export default function ManualAttendanceUpdate() {
 
                 <button
                   type="button"
+                  onClick={() => applyPreset('od_full')}
+                  className="p-2 text-left bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors"
+                >
+                  <span className="text-[11px] font-bold text-indigo-900 block flex items-center space-x-1">
+                    <span>Full Day OD</span>
+                    <span className="text-[9px] bg-indigo-200 text-indigo-800 px-1 rounded">On Duty</span>
+                  </span>
+                  <span className="text-[10px] text-indigo-700 font-mono">Login & Logout OD</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => applyPreset('od_login')}
+                  className="p-2 text-left bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-colors"
+                >
+                  <span className="text-[11px] font-bold text-sky-900 block flex items-center space-x-1">
+                    <span>Login OD</span>
+                    <span className="text-[9px] bg-sky-200 text-sky-800 px-1 rounded">Morning</span>
+                  </span>
+                  <span className="text-[10px] text-sky-700 font-mono">OD → Exit 06:00 PM</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => applyPreset('od_logout')}
+                  className="p-2 text-left bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-xl transition-colors"
+                >
+                  <span className="text-[11px] font-bold text-violet-900 block flex items-center space-x-1">
+                    <span>Logout OD</span>
+                    <span className="text-[9px] bg-violet-200 text-violet-800 px-1 rounded">Evening</span>
+                  </span>
+                  <span className="text-[10px] text-violet-700 font-mono">09:30 AM → Exit OD</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => applyPreset('ot_20')}
                   className="p-2 text-left bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
                 >
@@ -828,46 +892,158 @@ export default function ManualAttendanceUpdate() {
 
             {/* 3. Clock In, Clock Out & Status */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Clock In / Login */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Clock In Time
-                </label>
-                <input
-                  type="time"
-                  step="1"
-                  disabled={status === 'absent' || status === 'weekly_off'}
-                  value={clockIn}
-                  onChange={(e) => setClockIn(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
-                />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">Base: 09:30:00</span>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    Clock In / Login
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (clockIn === 'OD') {
+                        setClockIn('09:30:00');
+                        if (status === 'login_od' || (status === 'od' && clockOut !== 'OD')) setStatus('present');
+                      } else {
+                        setClockIn('OD');
+                        if (clockOut === 'OD') setStatus('od');
+                        else setStatus('login_od');
+                      }
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                      clockIn === 'OD'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                    }`}
+                    title="Click to toggle Login On Duty (OD)"
+                  >
+                    {clockIn === 'OD' ? '✓ Login OD' : '+ Login OD'}
+                  </button>
+                </div>
+
+                {clockIn === 'OD' ? (
+                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
+                    <span className="flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                      <span>OD (On Duty)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setClockIn('09:30:00')}
+                      className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                    >
+                      Set Time
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="time"
+                    step="1"
+                    disabled={status === 'absent' || status === 'weekly_off'}
+                    value={clockIn}
+                    onChange={(e) => setClockIn(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
+                  />
+                )}
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  {clockIn === 'OD' ? 'Morning Official On Duty' : 'Base: 09:30:00'}
+                </span>
               </div>
 
+              {/* Clock Out / Logout */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Clock Out Time
-                </label>
-                <input
-                  type="time"
-                  step="1"
-                  disabled={status === 'absent' || status === 'weekly_off'}
-                  value={clockOut}
-                  onChange={(e) => setClockOut(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
-                />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">Shift End: 18:00:00</span>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    Clock Out / Logout
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (clockOut === 'OD') {
+                        setClockOut('18:00:00');
+                        if (status === 'logout_od' || (status === 'od' && clockIn !== 'OD')) setStatus('present');
+                      } else {
+                        setClockOut('OD');
+                        if (clockIn === 'OD') setStatus('od');
+                        else setStatus('logout_od');
+                      }
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                      clockOut === 'OD'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                    }`}
+                    title="Click to toggle Logout On Duty (OD)"
+                  >
+                    {clockOut === 'OD' ? '✓ Logout OD' : '+ Logout OD'}
+                  </button>
+                </div>
+
+                {clockOut === 'OD' ? (
+                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
+                    <span className="flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                      <span>OD (On Duty)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setClockOut('18:00:00')}
+                      className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                    >
+                      Set Time
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="time"
+                    step="1"
+                    disabled={status === 'absent' || status === 'weekly_off'}
+                    value={clockOut}
+                    onChange={(e) => setClockOut(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
+                  />
+                )}
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  {clockOut === 'OD' ? 'Evening Official On Duty' : 'Shift End: 18:00:00'}
+                </span>
               </div>
 
+              {/* Status Dropdown */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Attendance Status
                 </label>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => {
+                    const nextStatus = e.target.value;
+                    setStatus(nextStatus);
+                    if (nextStatus === 'od') {
+                      setClockIn('OD');
+                      setClockOut('OD');
+                      if (!notes || notes === 'HR manual attendance entry') setNotes('Full Day OD (On Duty)');
+                    } else if (nextStatus === 'login_od') {
+                      setClockIn('OD');
+                      if (clockOut === 'OD') setClockOut('18:00:00');
+                      if (!notes || notes === 'HR manual attendance entry') setNotes('Morning OD (Login On Duty)');
+                    } else if (nextStatus === 'logout_od') {
+                      if (clockIn === 'OD') setClockIn('09:30:00');
+                      setClockOut('OD');
+                      if (!notes || notes === 'HR manual attendance entry') setNotes('Evening OD (Logout On Duty)');
+                    } else if (nextStatus === 'absent' || nextStatus === 'weekly_off') {
+                      setClockIn('');
+                      setClockOut('');
+                    } else if ((clockIn === 'OD' || clockOut === 'OD') && nextStatus === 'present') {
+                      if (clockIn === 'OD') setClockIn('09:30:00');
+                      if (clockOut === 'OD') setClockOut('18:00:00');
+                    }
+                  }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-semibold focus:outline-none focus:border-[#8b0000]"
                 >
                   <option value="present">Present (On-Time)</option>
+                  <option value="od">On Duty (OD - Full Day)</option>
+                  <option value="login_od">Login OD (Morning Duty)</option>
+                  <option value="logout_od">Logout OD (Evening Duty)</option>
                   <option value="late">Late Arrival</option>
                   <option value="half_day">Half Day</option>
                   <option value="absent">Absent (Loss of Pay)</option>
@@ -1022,13 +1198,31 @@ export default function ManualAttendanceUpdate() {
 
                       {/* Timings row */}
                       <div className="flex items-center justify-between mt-1 text-[11px]">
-                        <div className="text-slate-600 font-mono">
-                          {item.clock_in ? `${formatTime(item.clock_in)} → ${item.clock_out ? formatTime(item.clock_out) : 'In progress'}` : <span className="italic text-slate-400">No punch timings</span>}
+                        <div className="text-slate-600 font-mono flex items-center space-x-1 flex-wrap">
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Login:</span>
+                          {item.clock_in === 'OD' ? (
+                            <span className="px-1.5 py-0.2 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">OD</span>
+                          ) : (
+                            <span className="font-semibold text-slate-800">{item.clock_in ? formatTime(item.clock_in) : '--'}</span>
+                          )}
+                          <span className="text-slate-300 mx-0.5">→</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Logout:</span>
+                          {item.clock_out === 'OD' ? (
+                            <span className="px-1.5 py-0.2 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">OD</span>
+                          ) : item.clock_out ? (
+                            <span className="font-semibold text-slate-800">{formatTime(item.clock_out)}</span>
+                          ) : (
+                            <span className="italic text-slate-400">In progress</span>
+                          )}
                         </div>
 
                         {/* Status Badge */}
                         <div>
-                          {isAbsent ? (
+                          {item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                              {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
+                            </span>
+                          ) : isAbsent ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">Absent</span>
                           ) : isLate ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">Late</span>

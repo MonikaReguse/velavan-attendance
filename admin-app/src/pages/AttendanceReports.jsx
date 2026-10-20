@@ -197,8 +197,11 @@ export default function AttendanceReports() {
       let otMinutes = 0;
 
       records.forEach(r => {
-        const isLate = isLateArrival(r.clock_in, r.status);
-        if (isLate) {
+        const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+        const isLate = !isOD && isLateArrival(r.clock_in, r.status);
+        if (isOD) {
+          present += 1;
+        } else if (isLate) {
           present += 1;
           late += 1;
         } else if (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) {

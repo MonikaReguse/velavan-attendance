@@ -320,8 +320,9 @@ export default function AdminDashboard({ setActiveTab }) {
                 const displayRole = empInfo.role || rec.role || 'Staff';
                 const displayAvatar = resolvePhotoUrl(empInfo.avatar || rec.avatar || rec.punch_photo, displayName);
 
-                const isLate = rec.status === 'late';
-                const isHalfDay = rec.status === 'half_day';
+                const isOD = rec.status === 'od' || rec.status === 'login_od' || rec.status === 'logout_od' || rec.clock_in === 'OD' || rec.clock_out === 'OD';
+                const isLate = !isOD && rec.status === 'late';
+                const isHalfDay = !isOD && rec.status === 'half_day';
                 const isOngoing = !rec.clock_out || rec.clock_out === rec.clock_in;
 
                 return (
@@ -357,8 +358,12 @@ export default function AdminDashboard({ setActiveTab }) {
                     <div className="flex items-center space-x-4 text-right">
                       <div>
                         <div className="text-xs font-semibold text-slate-700 font-mono">
-                          In: {formatTime(rec.clock_in)}
-                          {!isOngoing && rec.clock_out && <span className="text-slate-400 ml-1.5 font-normal">| Out: {formatTime(rec.clock_out)}</span>}
+                          Login: {rec.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_in)}
+                          {!isOngoing && rec.clock_out && (
+                            <span className="text-slate-400 ml-1.5 font-normal">
+                              | Logout: {rec.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_out)}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {rec.total_hours > 0 ? (
@@ -378,14 +383,16 @@ export default function AdminDashboard({ setActiveTab }) {
 
                       <span
                         className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          isLate
+                          isOD
+                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                            : isLate
                             ? 'bg-amber-100 text-amber-700 border border-amber-200'
                             : isHalfDay
                             ? 'bg-blue-100 text-blue-700 border border-blue-200'
                             : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                         }`}
                       >
-                        {isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : 'On-Time'}
+                        {isOD ? (rec.status === 'login_od' ? 'Login OD' : rec.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)') : isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : 'On-Time'}
                       </span>
                     </div>
                   </div>
