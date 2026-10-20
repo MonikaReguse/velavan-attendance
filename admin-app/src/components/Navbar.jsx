@@ -89,20 +89,10 @@ export default function Navbar({
             <span>Admin Login</span>
           </button>
         ) : (
-          /* UNLOCKED ADMIN MODE: Show Lock Kiosk Button & Admin profile */
+          /* UNLOCKED ADMIN MODE: Admin profile & Logout */
           <div className="flex items-center space-x-2 sm:space-x-3">
-            <button
-              onClick={onLockKiosk}
-              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-2xs"
-              title="Lock screen back to Employee FaceLock Attendance"
-            >
-              <Lock className="w-3.5 h-3.5 text-amber-700" />
-              <span className="hidden sm:inline">Lock to Employee FaceLock</span>
-              <span className="sm:hidden">Lock Kiosk</span>
-            </button>
-
             {/* User chip */}
-            <div className="hidden sm:flex items-center space-x-2 pl-2 border-l border-slate-200">
+            <div className="flex items-center space-x-2 pl-2 border-l border-slate-200">
               <div className="w-7 h-7 rounded-full bg-[#8b0000] text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs">
                 {adminUser?.username ? adminUser.username.slice(0, 2) : 'AD'}
               </div>

@@ -15,16 +15,14 @@ import { api } from './services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal, getDeletedPunchKeys } from './services/attendanceStorage';
 
 export default function App() {
-  // Default to Kiosk Mode (Employee FaceLock Only)
-  // Ensures employees ONLY see the FaceLock camera and punch screen!
+  // Default to Full Admin Mode with complete navigation accessible
   const [isKioskMode, setIsKioskMode] = useState(() => {
     try {
-      const savedUser = localStorage.getItem('workpulse_admin_user');
       const savedKiosk = localStorage.getItem('workpulse_is_kiosk');
       if (savedKiosk !== null) return savedKiosk === 'true';
-      return !savedUser;
+      return false;
     } catch {
-      return true;
+      return false;
     }
   });
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);

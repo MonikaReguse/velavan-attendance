@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   ScanFace,
   X,
-  Lock,
   CalendarCheck
 } from 'lucide-react';
 
@@ -31,15 +30,6 @@ export default function Sidebar({ activeTab, setActiveTab, isMobileMenuOpen, set
     setActiveTab(tabId);
     if (setIsMobileMenuOpen) {
       setIsMobileMenuOpen(false);
-    }
-  };
-
-  const handleLock = () => {
-    if (setIsMobileMenuOpen) {
-      setIsMobileMenuOpen(false);
-    }
-    if (onLockKiosk) {
-      onLockKiosk();
     }
   };
 
@@ -66,18 +56,6 @@ export default function Sidebar({ activeTab, setActiveTab, isMobileMenuOpen, set
             <X className="w-5 h-5" />
           </button>
         )}
-      </div>
-
-      {/* Kiosk Mode Switcher */}
-      <div className="p-3 border-b border-slate-100 bg-amber-50/40">
-        <button
-          onClick={handleLock}
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-xs shadow-2xs transition-all"
-          title="Switch screen to FaceLock terminal for staff attendance"
-        >
-          <Lock className="w-3.5 h-3.5 text-amber-800" />
-          <span>Switch to FaceLock Kiosk</span>
-        </button>
       </div>
 
       {/* Navigation Links */}
