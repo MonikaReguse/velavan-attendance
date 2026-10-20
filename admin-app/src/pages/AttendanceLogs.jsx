@@ -175,9 +175,16 @@ export default function AttendanceLogs() {
 
   const handleSubmitManual = async (e) => {
     e.preventDefault();
+    const isOD = formData.status === 'od' || formData.status === 'login_od' || formData.status === 'logout_od' || formData.clock_in === 'OD' || formData.clock_out === 'OD';
+    const trimmedNotes = (formData.notes || '').trim();
+    if (isOD && (!trimmedNotes || trimmedNotes === 'HR manual entry' || trimmedNotes === 'HR manual adjustment')) {
+      alert('⚠️ Please enter or select a specific reason for On Duty (OD) (e.g. Client Site Visit, Registrar Office, Meeting) before saving.');
+      return;
+    }
     try {
       const payload = {
         ...formData,
+        notes: trimmedNotes || (isOD ? 'Client Site Visit' : 'HR manual adjustment'),
         clock_in: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_in || '--'),
         clock_out: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_out || '--')
       };
@@ -187,7 +194,7 @@ export default function AttendanceLogs() {
         id: res.id || formData.id || undefined,
         method: 'manual',
         status: payload.status || 'present',
-        notes: payload.notes || 'HR manual adjustment'
+        notes: payload.notes
       };
       savePunchLocally(savedPunch);
       setModalOpen(false);
@@ -638,13 +645,33 @@ export default function AttendanceLogs() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Adjustment Reason</label>
+                  <label className="block text-slate-700 font-semibold mb-1 text-xs">
+                    {(formData.status === 'od' || formData.status === 'login_od' || formData.status === 'logout_od' || formData.clock_in === 'OD' || formData.clock_out === 'OD')
+                      ? 'On Duty (OD) Reason *'
+                      : 'Adjustment Reason'}
+                  </label>
                   <input
                     type="text"
+                    required={(formData.status === 'od' || formData.status === 'login_od' || formData.status === 'logout_od' || formData.clock_in === 'OD' || formData.clock_out === 'OD')}
+                    placeholder={(formData.status === 'od' || formData.status === 'login_od' || formData.status === 'logout_od' || formData.clock_in === 'OD' || formData.clock_out === 'OD') ? 'e.g. Client Site Visit / Registrar Office' : 'e.g. Regular shift / Client visit'}
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
                   />
+                  {(formData.status === 'od' || formData.status === 'login_od' || formData.status === 'logout_od' || formData.clock_in === 'OD' || formData.clock_out === 'OD') && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {['Client Site Visit', 'Registrar Office', 'Customer Meeting', 'Field Inspection'].map(tag => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, notes: tag })}
+                          className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200"
+                        >
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

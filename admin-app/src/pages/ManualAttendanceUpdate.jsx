@@ -416,6 +416,17 @@ export default function ManualAttendanceUpdate() {
       return;
     }
 
+    // MANDATORY REASON VALIDATION FOR ON DUTY (OD):
+    const isODActive = status === 'od' || status === 'login_od' || status === 'logout_od' || clockIn === 'OD' || clockOut === 'OD';
+    const trimmedNotes = (notes || '').trim();
+    if (isODActive && (!trimmedNotes || trimmedNotes === 'HR manual attendance entry' || trimmedNotes === 'HR manual adjustment')) {
+      setFeedback({
+        type: 'error',
+        message: '⚠️ Please enter or select a specific reason for On Duty (OD) before saving (e.g. Client Site Visit, Registrar Office, Meeting).'
+      });
+      return;
+    }
+
     try {
       setSaving(true);
       setFeedback(null);
@@ -439,7 +450,7 @@ export default function ManualAttendanceUpdate() {
         clock_in: (status === 'absent' || status === 'weekly_off') ? '--' : (clockIn || '--'),
         clock_out: (status === 'absent' || status === 'weekly_off') ? '--' : (clockOut || '--'),
         status: status,
-        notes: notes.trim() || 'HR manual attendance entry',
+        notes: trimmedNotes || (isODActive ? 'Client Site Visit' : 'HR manual attendance entry'),
         ot_minutes: customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes
       };
 
@@ -533,6 +544,7 @@ export default function ManualAttendanceUpdate() {
   }, [recentLogs, filterSearch]);
 
   const isCurrentMarked = markedEmpIdsForSelectedDate.has(selectedEmpId);
+  const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || clockIn === 'OD' || clockOut === 'OD';
 
   return (
     <div className="space-y-6 animate-in fade-in pb-12">
@@ -1083,17 +1095,76 @@ export default function ManualAttendanceUpdate() {
             </div>
 
             {/* 5. Notes / Reason */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Adjustment Reason / Official Notes
-              </label>
+            <div className={`p-4 rounded-2xl transition-all ${
+              isOD ? 'bg-indigo-50/90 border-2 border-indigo-300 ring-2 ring-indigo-100' : 'bg-transparent'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                  <Briefcase className={`w-4 h-4 ${isOD ? 'text-indigo-700' : 'text-slate-500'}`} />
+                  <span>{isOD ? 'On Duty (OD) Official Reason' : 'Adjustment Reason / Official Notes'}</span>
+                  {isOD && (
+                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200">
+                      Reason Required *
+                    </span>
+                  )}
+                </label>
+                {isOD && (
+                  <span className="text-[10px] text-indigo-600 font-semibold hidden sm:inline">
+                    Choose quick reason or type custom details
+                  </span>
+                )}
+              </div>
+
+              {/* 1-Click Quick OD Reason Buttons */}
+              {isOD && (
+                <div className="mb-2.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'Client Site Visit',
+                      'Registrar Office Work',
+                      'Customer Meeting',
+                      'Property Field Inspection',
+                      'Bank / Government Office',
+                      'Document Collection / Delivery',
+                      'Management Meeting'
+                    ].map((reasonTag) => {
+                      const isSelected = notes === reasonTag || notes.includes(reasonTag);
+                      return (
+                        <button
+                          key={reasonTag}
+                          type="button"
+                          onClick={() => setNotes(reasonTag)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-200 shadow-2xs'
+                          }`}
+                        >
+                          + {reasonTag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <input
                 type="text"
-                placeholder="e.g. Regular shift / Client site visit / Management approved"
+                required={isOD}
+                placeholder={isOD ? 'Enter specific OD reason (e.g. Client Site Visit, Registrar Office, Meeting)' : 'e.g. Regular shift / Client site visit / Management approved'}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs focus:outline-none focus:border-[#8b0000]"
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs focus:outline-none transition-all ${
+                  isOD
+                    ? 'bg-white border-2 border-indigo-400 text-indigo-950 font-semibold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-200 shadow-xs placeholder-indigo-300'
+                    : 'bg-slate-50 border border-slate-200 text-slate-900 focus:border-[#8b0000]'
+                }`}
               />
+              {isOD && (
+                <p className="text-[10px] text-indigo-700 mt-1 font-medium">
+                  ℹ️ This reason will be recorded on the official attendance register and reports.
+                </p>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -1237,13 +1308,20 @@ export default function ManualAttendanceUpdate() {
                       {/* OT & Actions Bottom Row */}
                       <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-50 text-[11px]">
                         <div>
-                          {hasOt ? (
+                          {item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
+                            <span className="text-[10px] text-indigo-900 font-semibold flex items-center space-x-1">
+                              <span className="text-indigo-400 font-normal">Reason:</span>
+                              <span className="font-bold bg-indigo-50 text-indigo-800 px-1.5 py-0.2 rounded border border-indigo-200">
+                                {item.notes && item.notes !== 'HR manual attendance entry' && item.notes !== 'HR manual adjustment' ? item.notes : 'Client Site Visit'}
+                              </span>
+                            </span>
+                          ) : hasOt ? (
                             <span className="inline-flex items-center space-x-1 font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded text-[10px] border border-amber-200">
                               <Flame className="w-3 h-3 text-amber-600" />
                               <span>+{otMins} mins OT</span>
                             </span>
                           ) : (
-                            <span className="text-slate-400 text-[10px]">{item.method === 'manual' ? 'Manual Entry' : 'Biometric'}</span>
+                            <span className="text-slate-400 text-[10px]">{item.notes ? item.notes : (item.method === 'manual' ? 'Manual Entry' : 'Biometric')}</span>
                           )}
                         </div>
 
