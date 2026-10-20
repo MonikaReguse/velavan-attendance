@@ -130,12 +130,12 @@ export default function AttendanceReports() {
   };
 
   const handleExportPayrollCSV = () => {
-    // Client-side enriched export ensuring Monthly Base Salary and Days Late are clearly stated
-    let csv = 'Employee ID,Employee Name,Department,Role,Monthly Base Salary (INR),Daily Rate (INR),Days Present,Days Late,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Estimated Net Total Payout (INR)\r\n';
+    // Client-side enriched export ensuring Monthly Base Salary, This Month Earned Salary and Days Late are clearly stated
+    let csv = 'Employee ID,Employee Name,Department,Role,Monthly Base Salary (INR),Daily Rate (INR),This Month Earned Salary (INR),Days Present,Days Late,Days Absent,Half Days,OT Minutes,OT Pay (INR),Full Present Bonus Qualified,2 Days Extra Salary Bonus (INR),Net Month Salary Payout (INR)\r\n';
     
     payrollStats.forEach(p => {
       const isQualified = p.isFullPresentEligible ? 'YES (Qualified +2 Days Extra)' : 'NO';
-      csv += `"${p.emp_id}","${p.name}","${p.department}","${p.role}",${p.baseSalary},${p.dailyRate},${p.present},${p.late || 0},${p.absent},${p.halfday || 0},${p.otMinutes || 0},${p.otPay || 0},"${isQualified}",${p.fullPresentBonus || 0},${p.netTotalPayout || 0}\r\n`;
+      csv += `"${p.emp_id}","${p.name}","${p.department}","${p.role}",${p.baseSalary},${p.dailyRate},${p.earnedBase},${p.present},${p.late || 0},${p.absent},${p.halfday || 0},${p.otMinutes || 0},${p.otPay || 0},"${isQualified}",${p.fullPresentBonus || 0},${p.netTotalPayout || 0}\r\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -394,7 +394,14 @@ export default function AttendanceReports() {
             </div>
             <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center space-x-2">
               <Award className="w-5 h-5 text-amber-600" />
-              <span>Monthly Payroll & Full Attendance Bonus Tracker</span>
+              <span>
+                Monthly Payroll & Full Attendance Bonus Tracker
+                {filters?.startDate && (
+                  <span className="text-amber-700 font-extrabold ml-1.5">
+                    ({new Date(filters.startDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })})
+                  </span>
+                )}
+              </span>
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
               Employees with <strong>100% full attendance (0 absences)</strong> in the month receive an <strong>extra 2 days salary bonus (+2 Days Salary)</strong> plus Overtime.
@@ -459,11 +466,11 @@ export default function AttendanceReports() {
               <tr>
                 <th className="px-4 py-3">Employee</th>
                 <th className="px-4 py-3">Department</th>
-                <th className="px-4 py-3">Monthly Base Salary</th>
+                <th className="px-4 py-3">Monthly Base & Earned Salary</th>
                 <th className="px-4 py-3">Attendance & Late Days</th>
                 <th className="px-4 py-3">Overtime</th>
                 <th className="px-4 py-3">Full Present Bonus (+2 Days)</th>
-                <th className="px-4 py-3 text-right">Net Estimated Payout</th>
+                <th className="px-4 py-3 text-right">Net Month Salary (Payout)</th>
                 <th className="px-3 py-3 text-center">Single Slip</th>
               </tr>
             </thead>
@@ -488,8 +495,11 @@ export default function AttendanceReports() {
                     <div className="text-[10px] text-slate-400">{p.role}</div>
                   </td>
                   <td className="px-4 py-3 font-mono font-bold text-slate-800">
-                    ₹{p.baseSalary.toLocaleString('en-IN')}
+                    <div>₹{p.baseSalary.toLocaleString('en-IN')}</div>
                     <span className="block text-[10px] text-slate-400 font-normal">₹{p.dailyRate}/day</span>
+                    <span className="block text-[11px] text-emerald-700 font-bold mt-0.5">
+                      Earned: ₹{p.earnedBase.toLocaleString('en-IN')}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="space-y-1">
@@ -543,8 +553,8 @@ export default function AttendanceReports() {
                     <div className="font-mono font-black text-sm text-[#8b0000]">
                       ₹{p.netTotalPayout.toLocaleString('en-IN')}
                     </div>
-                    <span className="text-[10px] text-slate-400 block">
-                      {p.isFullPresentEligible ? 'Base + 2 Days Bonus + OT' : 'Base - LOP + OT'}
+                    <span className="text-[10px] text-slate-500 font-bold block">
+                      Net Month Salary ({p.isFullPresentEligible ? 'Base + Bonus + OT' : 'Base - LOP + OT'})
                     </span>
                   </td>
                   <td className="px-3 py-3 text-center">
