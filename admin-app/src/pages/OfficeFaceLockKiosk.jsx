@@ -95,12 +95,14 @@ export default function OfficeFaceLockKiosk() {
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
     window.addEventListener('velavan_employees_updated', handleEmployeesUpdated);
+    window.addEventListener('storage', handleRealtimeUpdate);
 
     return () => {
       clearInterval(pollTimer);
       stopCamera();
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
       window.removeEventListener('velavan_employees_updated', handleEmployeesUpdated);
+      window.removeEventListener('storage', handleRealtimeUpdate);
     };
   }, []);
 

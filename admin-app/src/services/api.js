@@ -105,6 +105,8 @@ export const api = {
     const params = new URLSearchParams(filters).toString();
     return fetch(`${API_BASE}/attendance/history?${params}`).then(handleResponse);
   },
+  getAttendanceRecord: (emp_id, date) =>
+    fetch(`${API_BASE}/attendance/record?emp_id=${encodeURIComponent(emp_id)}&date=${encodeURIComponent(date)}`).then(handleResponse),
   recordManualAttendance: (data) =>
     fetch(`${API_BASE}/attendance/manual`, {
       method: 'POST',

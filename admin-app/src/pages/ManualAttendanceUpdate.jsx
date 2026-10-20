@@ -82,12 +82,14 @@ export default function ManualAttendanceUpdate() {
     };
     window.addEventListener('velavan_attendance_updated', handleRealtimeUpdate);
     window.addEventListener('velavan_employees_updated', handleRealtimeUpdate);
+    window.addEventListener('storage', handleRealtimeUpdate);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('velavan_attendance_updated', handleRealtimeUpdate);
       window.removeEventListener('velavan_employees_updated', handleRealtimeUpdate);
+      window.removeEventListener('storage', handleRealtimeUpdate);
     };
   }, []);
 
@@ -96,16 +98,16 @@ export default function ManualAttendanceUpdate() {
       setLoading(true);
       const [empList, historyList] = await Promise.all([
         api.getEmployees(),
-        api.getAttendanceHistory({ limit: 50 })
+        api.getAttendanceHistory()
       ]);
       const cleanEmpList = empList || [];
       setEmployees(cleanEmpList);
       const cleanHistory = mergeAttendanceWithLocal(historyList || []);
-      setRecentLogs(cleanHistory.slice(0, 50));
+      setRecentLogs(cleanHistory);
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
-      setRecentLogs(getLocalAttendance().slice(0, 50));
+      setRecentLogs(getLocalAttendance());
     } finally {
       setLoading(false);
     }
@@ -179,66 +181,71 @@ export default function ManualAttendanceUpdate() {
     }
   };
 
-  // Handle switching employee in dropdown - NEVER keeps editingId of another employee!
+  // Actively query the persistent database whenever selectedDate changes
+  useEffect(() => {
+    if (!selectedDate) return;
+    let isCancelled = false;
+    api.getAttendanceHistory({ date: selectedDate })
+      .then(dateLogs => {
+        if (isCancelled || !Array.isArray(dateLogs)) return;
+        mergeAttendanceWithLocal(dateLogs);
+        setRecentLogs(prev => {
+          const map = new Map(prev.map(p => [`${p.emp_id}_${p.date}`, p]));
+          dateLogs.forEach(d => map.set(`${d.emp_id}_${d.date}`, d));
+          return Array.from(map.values()).sort((a,b) => b.date.localeCompare(a.date));
+        });
+      })
+      .catch(console.error);
+    return () => { isCancelled = true; };
+  }, [selectedDate]);
+
+  // Reactive form sync: Populate the form inputs with the database record for selected employee & date
+  // (Only applies when user is not manually editing another row by ID)
+  useEffect(() => {
+    if (editingId) return;
+    if (!selectedEmpId || !selectedDate) return;
+
+    if (existingRecord) {
+      setClockIn(existingRecord.clock_in && existingRecord.clock_in !== '--' ? existingRecord.clock_in : '09:30:00');
+      setClockOut(existingRecord.clock_out && existingRecord.clock_out !== '--' ? existingRecord.clock_out : '18:00:00');
+      setStatus(existingRecord.status || 'present');
+      setCustomOtMinutes((existingRecord.ot_minutes !== undefined && existingRecord.ot_minutes !== null && Number(existingRecord.ot_minutes) > 0) ? String(existingRecord.ot_minutes) : '');
+      setNotes(existingRecord.notes || 'HR manual adjustment');
+    } else {
+      let isSunday = false;
+      try {
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        isSunday = new Date(y, m - 1, d).getDay() === 0;
+      } catch {}
+
+      if (isSunday) {
+        setClockIn('');
+        setClockOut('');
+        setStatus('weekly_off');
+        setCustomOtMinutes('0');
+        setNotes('Weekly Off (Paid Sunday Rest)');
+      } else {
+        setClockIn('09:30:00');
+        setClockOut('18:00:00');
+        setStatus('present');
+        setCustomOtMinutes('');
+        setNotes('HR manual attendance entry');
+      }
+    }
+  }, [selectedEmpId, selectedDate, existingRecord, editingId]);
+
+  // Handle switching employee in dropdown
   const handleSelectEmployee = (empId) => {
     if (!empId) return;
     setSelectedEmpId(empId);
-    setEditingId(null); // Clear editing mode so other employee records are NEVER modified!
-
-    const all = getLocalAttendance();
-    const existing = all.find(a => a.emp_id === empId && a.date === selectedDate)
-      || recentLogs.find(a => a.emp_id === empId && a.date === selectedDate);
-
-    if (existing) {
-      setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
-      setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
-      setStatus(existing.status || 'present');
-      setCustomOtMinutes(existing.ot_minutes ? String(existing.ot_minutes) : '');
-      setNotes(existing.notes || 'HR manual adjustment');
-    } else {
-      setClockIn('09:30:00');
-      setClockOut('18:00:00');
-      setStatus('present');
-      setCustomOtMinutes('');
-      setNotes('HR manual attendance entry');
-    }
+    setEditingId(null);
     setFeedback(null);
   };
 
-  // Handle switching date - automatically detects day and pre-fills Sunday Weekly Off if applicable
+  // Handle switching date - automatically detects day and syncs records
   const handleSelectDate = (newDate) => {
     setSelectedDate(newDate);
-    setEditingId(null); // Clear editing mode when switching date
-
-    const all = getLocalAttendance();
-    const existing = all.find(a => a.emp_id === selectedEmpId && a.date === newDate)
-      || recentLogs.find(a => a.emp_id === selectedEmpId && a.date === newDate);
-
-    let isSunday = false;
-    try {
-      const [y, m, d] = newDate.split('-').map(Number);
-      isSunday = new Date(y, m - 1, d).getDay() === 0;
-    } catch {}
-
-    if (existing) {
-      setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
-      setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
-      setStatus(existing.status || 'present');
-      setCustomOtMinutes(existing.ot_minutes ? String(existing.ot_minutes) : '');
-      setNotes(existing.notes || 'HR manual adjustment');
-    } else if (isSunday) {
-      setClockIn('');
-      setClockOut('');
-      setStatus('weekly_off');
-      setCustomOtMinutes('0');
-      setNotes('Weekly Off (Paid Sunday Rest)');
-    } else {
-      setClockIn('09:30:00');
-      setClockOut('18:00:00');
-      setStatus('present');
-      setCustomOtMinutes('');
-      setNotes('HR manual attendance entry');
-    }
+    setEditingId(null);
     setFeedback(null);
   };
 
@@ -484,13 +491,13 @@ export default function ManualAttendanceUpdate() {
             : `Attendance successfully recorded for ${empName} on ${selectedDate}!`
         });
 
-        // Refresh recent logs
-        const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
-        const merged = mergeAttendanceWithLocal(updatedLogs || []);
-        setRecentLogs(merged.slice(0, 50));
+        // Refresh recent logs from database
+        const updatedLogs = await api.getAttendanceHistory();
+        const merged = mergeAttendanceWithLocal(updatedLogs || [savedPunch]);
+        setRecentLogs(merged);
 
-        // Advance to next employee for daily attendance flow
-        goToNextEmployee();
+        // Intentionally keep user on currently saved employee with clear success confirmation!
+        // User can click "Next Employee ▶" whenever they wish to advance.
       } else {
         let msg = res.error || 'Failed to save attendance';
         if (msg.includes('FOREIGN KEY')) {
@@ -520,9 +527,9 @@ export default function ManualAttendanceUpdate() {
       setRecentLogs(prev => prev.filter(l => !( (id && String(l.id) === String(id)) || (emp_id && recordDate && l.emp_id === emp_id && l.date === recordDate) )));
       await api.deleteAttendance(id, emp_id, recordDate).catch(console.error);
       setFeedback({ type: 'success', message: 'Attendance record deleted successfully' });
-      const updatedLogs = await api.getAttendanceHistory({ limit: 50 });
+      const updatedLogs = await api.getAttendanceHistory();
       const merged = mergeAttendanceWithLocal(updatedLogs || []);
-      setRecentLogs(merged.slice(0, 50));
+      setRecentLogs(merged);
       if (editingId === id) {
         setEditingId(null);
       }

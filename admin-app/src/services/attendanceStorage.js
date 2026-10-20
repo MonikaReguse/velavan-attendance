@@ -254,7 +254,7 @@ export const syncLocalRecordsToServer = async (recordsToSync) => {
 };
 
 // Smart 2-way merge: Combine server records with local storage, prioritizing authoritative server data
-// and permanently preserving all local records so redeploys and restarts NEVER erase attendance history!
+// and permanently preserving all local records across all dates and all employees.
 export const mergeAttendanceWithLocal = (serverRecords = []) => {
   const validServer = (Array.isArray(serverRecords) ? serverRecords : []).filter(isValidAttendanceRecord);
   const localList = getLocalAttendance();
@@ -262,51 +262,39 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
 
   const map = new Map();
 
-  // 1. Authoritative server records first (excluding any explicitly deleted ones)
-  for (const s of validServer) {
-    const key = `${s.emp_id}_${s.date}`;
-    if (!deletedKeys.has(key) && (!s.id || !deletedKeys.has(String(s.id)))) {
-      map.set(key, s);
+  // 1. Populate map with existing local records (excluding permanently deleted ones)
+  for (const l of localList) {
+    const key = `${l.emp_id}_${l.date}`;
+    if (!deletedKeys.has(key) && (!l.id || !deletedKeys.has(String(l.id)))) {
+      map.set(key, l);
     }
   }
 
-  // 2. Add local records:
-  // - If record is NOT on the server yet, KEEP IT and queue for background push to server!
-  // - If record IS on server, merge any richer fields (biometric punch_photo, clock_out, total_hours, notes) that server might be missing
-  const unsyncedToPush = [];
-  for (const l of localList) {
-    const key = `${l.emp_id}_${l.date}`;
-    if (deletedKeys.has(key) || (l.id && deletedKeys.has(String(l.id)))) {
-      continue;
+  // 2. Overlay authoritative server records (updating or inserting)
+  for (const s of validServer) {
+    const key = `${s.emp_id}_${s.date}`;
+    // If it came directly from the server database, ensure it is not blocked by deletedKeys
+    if (deletedKeys.has(key) || (s.id && deletedKeys.has(String(s.id)))) {
+      deletedKeys.delete(key);
+      if (s.id) deletedKeys.delete(String(s.id));
+      try {
+        localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+      } catch {}
     }
 
-    const serverEntry = map.get(key);
-    if (!serverEntry) {
-      map.set(key, l);
-      unsyncedToPush.push(l);
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, s);
     } else {
-      // Server record exists; enrich if local has valid data server lacks
-      const enriched = { ...serverEntry };
-      let changed = false;
-      if ((!enriched.clock_out || enriched.clock_out === '--') && l.clock_out && l.clock_out !== '--') {
-        enriched.clock_out = l.clock_out;
-        changed = true;
+      // Merge authoritative server record with any richer local fields (e.g. biometric photo)
+      const mergedRec = { ...existing, ...s };
+      if (!mergedRec.punch_photo && existing.punch_photo) {
+        mergedRec.punch_photo = existing.punch_photo;
       }
-      if ((!enriched.total_hours || enriched.total_hours === 0) && l.total_hours) {
-        enriched.total_hours = l.total_hours;
-        changed = true;
+      if ((!mergedRec.clock_out || mergedRec.clock_out === '--') && existing.clock_out && existing.clock_out !== '--') {
+        mergedRec.clock_out = existing.clock_out;
       }
-      if ((!enriched.ot_minutes || enriched.ot_minutes === 0) && l.ot_minutes) {
-        enriched.ot_minutes = l.ot_minutes;
-        changed = true;
-      }
-      if (!enriched.punch_photo && l.punch_photo) {
-        enriched.punch_photo = l.punch_photo;
-        changed = true;
-      }
-      if (changed) {
-        map.set(key, enriched);
-      }
+      map.set(key, mergedRec);
     }
   }
 
@@ -326,11 +314,6 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     b.attendance = merged;
     localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
   } catch {}
-
-  // If there are records present locally that the server lacks, push them to the server in background!
-  if (unsyncedToPush.length > 0) {
-    syncLocalRecordsToServer(unsyncedToPush);
-  }
 
   return merged;
 };

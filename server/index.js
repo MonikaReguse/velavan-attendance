@@ -1436,7 +1436,7 @@ app.get('/api/attendance/today-summary', (req, res) => {
 // Attendance History & Reports Filter
 app.get('/api/attendance/history', (req, res) => {
   try {
-    const { startDate, endDate, department, emp_id, status } = req.query;
+    const { startDate, endDate, department, emp_id, status, date, limit } = req.query;
 
     let query = `
       SELECT 
@@ -1454,6 +1454,10 @@ app.get('/api/attendance/history', (req, res) => {
     `;
     const params = [];
 
+    if (date) {
+      query += ' AND a.date = ?';
+      params.push(date);
+    }
     if (startDate) {
       query += ' AND a.date >= ?';
       params.push(startDate);
@@ -1475,10 +1479,42 @@ app.get('/api/attendance/history', (req, res) => {
       params.push(status);
     }
 
-    query += ' ORDER BY a.date DESC, a.clock_in DESC LIMIT 500';
+    const limitVal = parseInt(limit, 10);
+    if (limitVal > 0) {
+      query += ' ORDER BY a.date DESC, a.clock_in DESC LIMIT ' + limitVal;
+    } else {
+      query += ' ORDER BY a.date DESC, a.clock_in DESC LIMIT 1000';
+    }
 
     const rows = db.prepare(query).all(...params);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Single Employee Attendance Record on Date
+app.get('/api/attendance/record', (req, res) => {
+  try {
+    const { emp_id, date } = req.query;
+    if (!emp_id || !date) {
+      return res.status(400).json({ error: 'emp_id and date are required' });
+    }
+    const row = db.prepare(`
+      SELECT 
+        a.id, a.emp_id, a.date, a.clock_in, a.clock_out, a.total_hours,
+        COALESCE(a.ot_hours, 0) as ot_hours,
+        COALESCE(a.ot_minutes, 0) as ot_minutes,
+        a.status, a.punch_photo, a.method, a.notes,
+        COALESCE(e.name, a.emp_id) as employee_name, 
+        COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
+        COALESCE(e.role, 'Staff') as role, 
+        e.avatar
+      FROM attendance a
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
+      WHERE a.emp_id = ? AND a.date = ?
+    `).get(emp_id, date);
+    res.json(row || null);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
