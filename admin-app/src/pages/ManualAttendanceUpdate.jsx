@@ -102,12 +102,6 @@ export default function ManualAttendanceUpdate() {
       setEmployees(cleanEmpList);
       const cleanHistory = mergeAttendanceWithLocal(historyList || []);
       setRecentLogs(cleanHistory.slice(0, 50));
-
-      if (cleanEmpList.length > 0 && !selectedEmpId) {
-        // Pick the first employee who does NOT have attendance for selectedDate today
-        const unmarked = cleanEmpList.find(e => !cleanHistory.some(a => a.emp_id === e.emp_id && a.date === selectedDate));
-        setSelectedEmpId(unmarked ? unmarked.emp_id : cleanEmpList[0].emp_id);
-      }
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
@@ -116,6 +110,13 @@ export default function ManualAttendanceUpdate() {
       setLoading(false);
     }
   };
+
+  // Set default employee once employees load (only on initial startup)
+  useEffect(() => {
+    if (employees.length > 0 && !selectedEmpId) {
+      setSelectedEmpId(employees[0].emp_id);
+    }
+  }, [employees]);
 
   // Find currently selected employee object
   const currentEmployee = useMemo(() => {
@@ -146,6 +147,7 @@ export default function ManualAttendanceUpdate() {
 
   // Handle switching employee in dropdown - NEVER keeps editingId of another employee!
   const handleSelectEmployee = (empId) => {
+    if (!empId) return;
     setSelectedEmpId(empId);
     setEditingId(null); // Clear editing mode so other employee records are NEVER modified!
 
@@ -194,32 +196,19 @@ export default function ManualAttendanceUpdate() {
     setFeedback(null);
   };
 
-  // Swift Navigation: Advance to next employee who needs attendance
-  const advanceToNextEmployee = () => {
+  // Swift Navigation: Advance to next sequential employee in list
+  const goToNextEmployee = () => {
     if (!employees || employees.length === 0) return;
     const currentIdx = employees.findIndex(e => e.emp_id === selectedEmpId);
-    const all = getLocalAttendance();
-
-    let nextEmp = null;
-    for (let i = 1; i <= employees.length; i++) {
-      const candidate = employees[(currentIdx + i) % employees.length];
-      const hasRecord = all.some(a => a.emp_id === candidate.emp_id && a.date === selectedDate);
-      if (!hasRecord) {
-        nextEmp = candidate;
-        break;
-      }
-    }
-    if (!nextEmp) {
-      nextEmp = employees[(currentIdx + 1) % employees.length];
-    }
-    handleSelectEmployee(nextEmp.emp_id);
+    const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % employees.length;
+    handleSelectEmployee(employees[nextIdx].emp_id);
   };
 
-  // Swift Navigation: Go to previous employee
+  // Swift Navigation: Go to previous sequential employee in list
   const goToPrevEmployee = () => {
     if (!employees || employees.length === 0) return;
     const currentIdx = employees.findIndex(e => e.emp_id === selectedEmpId);
-    const prevIdx = (currentIdx - 1 + employees.length) % employees.length;
+    const prevIdx = currentIdx <= 0 ? employees.length - 1 : currentIdx - 1;
     handleSelectEmployee(employees[prevIdx].emp_id);
   };
 
@@ -415,8 +404,8 @@ export default function ManualAttendanceUpdate() {
         const merged = mergeAttendanceWithLocal(updatedLogs || []);
         setRecentLogs(merged.slice(0, 50));
 
-        // Advance to next unmarked employee for daily attendance flow
-        advanceToNextEmployee();
+        // Advance to next employee for daily attendance flow
+        goToNextEmployee();
       } else {
         let msg = res.error || 'Failed to save attendance';
         if (msg.includes('FOREIGN KEY')) {
@@ -591,7 +580,7 @@ export default function ManualAttendanceUpdate() {
                     </button>
                     <button
                       type="button"
-                      onClick={advanceToNextEmployee}
+                      onClick={goToNextEmployee}
                       className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
                       title="Next Employee"
                     >
@@ -679,7 +668,7 @@ export default function ManualAttendanceUpdate() {
                     </button>
                     <button
                       type="button"
-                      onClick={advanceToNextEmployee}
+                      onClick={goToNextEmployee}
                       className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] flex items-center space-x-1 transition-colors"
                     >
                       <span>Next Employee</span>
