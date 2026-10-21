@@ -19,8 +19,24 @@ import { getLocalAttendance, mergeAttendanceWithLocal, syncLocalRecordsToServer 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(() => {
     try {
-      const s = localStorage.getItem('velavan_dashboard_summary');
-      if (s) return JSON.parse(s);
+      const currentDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const allLocal = getLocalAttendance();
+      const todayList = allLocal.filter(a => a.date === currentDay);
+      if (todayList.length > 0) {
+        const present = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
+        const absent = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
+        const total = 9;
+        const late = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
+        const unaccounted = Math.max(0, total - present - absent);
+        return {
+          total_employees: total,
+          present_today: present,
+          late_today: late,
+          absent_today: absent + unaccounted,
+          explicit_absent_today: absent,
+          unaccounted_today: unaccounted
+        };
+      }
     } catch {}
     return { total_employees: 9, present_today: 0, absent_today: 9, late_today: 0 };
   });
