@@ -23,6 +23,7 @@ import { api } from '../services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
 import { exportAttendancePDF, exportPayrollPDF, exportSingleEmployeeSalarySlipPDF } from '../services/pdfExport';
 import { exportMonthlyPayrollExcel, exportMonthlyPayrollCSV, getMonthCalendarInfo } from '../services/excelExport';
+import { calculateEmployeeMonthlySalary } from '../services/salaryCalculator';
 import { isLateArrival, getLateMinutes } from '../services/timeUtils';
 
 export default function AttendanceReports() {
@@ -263,168 +264,11 @@ export default function AttendanceReports() {
 
   // Calculate Employee Payroll with Government Holiday Rules, Unpaid Leave & Full Attendance Bonus
   const payrollStats = useMemo(() => {
-    const { sundaysCount, workingDays } = calendarInfo;
-
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
-      
-      // Deduplicate records by date so each date is counted at most once
-      const dateMap = new Map();
-      records.forEach(r => {
-        if (!r.date) return;
-        const existing = dateMap.get(r.date);
-        if (!existing) {
-          dateMap.set(r.date, r);
-        } else {
-          // Merge punch details on the same date
-          const hasOutExisting = existing.clock_out && existing.clock_out !== '--' && existing.clock_out !== '';
-          const hasOutR = r.clock_out && r.clock_out !== '--' && r.clock_out !== '';
-          const isExistingAbsent = existing.status === 'absent' || existing.holiday_type === 'own_leave';
-          const isRAbsent = r.status === 'absent' || r.holiday_type === 'own_leave';
-
-          let base = existing;
-          if (isExistingAbsent && !isRAbsent) {
-            base = r;
-          } else if (!hasOutExisting && hasOutR) {
-            base = r;
-          }
-
-          dateMap.set(r.date, {
-            ...base,
-            clock_in: existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : r.clock_in,
-            clock_out: hasOutExisting ? existing.clock_out : (hasOutR ? r.clock_out : '--'),
-            ot_minutes: Math.max(Number(existing.ot_minutes || 0), Number(r.ot_minutes || 0)),
-            total_hours: Math.max(Number(existing.total_hours || 0), Number(r.total_hours || 0))
-          });
-        }
-      });
-      const uniqueRecords = Array.from(dateMap.values());
-
-      let normalPresent = 0;
-      let govtHolidayWorked = 0;
-      let govtHolidayGranted = 0;
-      let ownLeaveDays = 0;
-      let otherAbsent = 0;
-      let halfday = 0;
-      let paidLeaveDays = 0;
-      let late = 0;
-      let otMinutes = 0;
-
-      uniqueRecords.forEach(r => {
-        const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
-        const isGovtLeave = r.holiday_type === 'govt_holiday_leave' || r.status === 'holiday';
-        const isOwnLeave = r.holiday_type === 'own_leave';
-
-        if (isGovtWorked) {
-          govtHolidayWorked += 1;
-        } else if (isGovtLeave) {
-          govtHolidayGranted += 1;
-        } else if (isOwnLeave) {
-          ownLeaveDays += 1;
-        } else {
-          // Normal Working Day
-          const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
-          const isLeave = r.status === 'leave' || r.status === 'paid_leave';
-          
-          if (isLeave) {
-            paidLeaveDays += 1;
-            normalPresent += 1;
-          } else if (isOD) {
-            paidLeaveDays += 1;
-            normalPresent += 1;
-          } else if (r.status === 'present' || r.status === 'checked_in' || r.status === 'late' || r.is_late || (!r.status && r.clock_in && r.clock_in !== '--')) {
-            normalPresent += 1;
-          } else if (r.status === 'absent') {
-            otherAbsent += 1;
-          } else if (r.status === 'half_day') {
-            halfday += 1;
-          }
-        }
-
-        if (r.ot_minutes > 0) otMinutes += Number(r.ot_minutes);
-      });
-
-      const totalPresent = normalPresent + govtHolidayWorked + govtHolidayGranted;
-      const totalAbsent = ownLeaveDays + otherAbsent;
-
-      const baseSalary = Number(emp.salary || 0);
-      const dailyRate = baseSalary > 0 ? Math.round(baseSalary / 30) : 0;
-      const shiftMinutes = 510; // 8.5 hours
-      const otRatePerMin = dailyRate > 0 ? (dailyRate / shiftMinutes) * 1.5 : 0;
-      const otPay = Math.round(otMinutes * otRatePerMin);
-      const otHours = Number((otMinutes / 60).toFixed(2));
-
-      // Rule 1: Govt Holiday Worked = Double Salary for that day (2× Daily Rate).
-      // Since 1× Daily Rate is already part of base salary, extra bonus to disburse is 1× Daily Rate!
-      // Rule 2: Govt Holiday Office Granted = 1× Normal Salary (Paid by Office, 0 deduction).
-      // Rule 3: Employee Own Leave = Unpaid Leave (-1× Daily Rate deducted).
-      const unpaidLeaveDeductions = Math.round(ownLeaveDays * dailyRate);
-      const otherDeductions = Math.round(otherAbsent * dailyRate + halfday * 0.5 * dailyRate);
-      const totalDeductions = unpaidLeaveDeductions + otherDeductions;
-      
-      const normalSalary = Math.max(0, Math.round(baseSalary - totalDeductions));
-
-      // Full attendance bonus: 0 absences, 0 half days, and worked at least 1 shift
-      const isFullPresentEligible = totalAbsent === 0 && halfday === 0 && totalPresent > 0;
-      const fullPresentBonusDays = isFullPresentEligible ? 2 : 0;
-      const fullPresentBonus = Math.round(fullPresentBonusDays * dailyRate);
-
-      // Double-Salary Days: Govt Holidays Worked + Full Attendance Bonus days (if qualified)
-      const doubleSalaryDays = govtHolidayWorked + fullPresentBonusDays;
-      const holidayExtraSalary = Math.round(govtHolidayWorked * dailyRate) + fullPresentBonus;
-
-      const otherAllowances = Number(emp.allowance || 0);
-      const govtHolidaySalary = Math.round(govtHolidayGranted * dailyRate);
-      const totalMonthlySalary = baseSalary + otPay + holidayExtraSalary + otherAllowances;
-      
-      // Final Payable Salary: Normal Salary + Holiday Extra Salary + OT + Allowances
-      const finalPayableSalary = Math.max(0, normalSalary + holidayExtraSalary + otPay + otherAllowances);
-      const netTotalPayout = finalPayableSalary;
-
-      return {
-        emp_id: emp.emp_id,
-        name: emp.name,
-        department: emp.department || 'Digital Marketing',
-        role: emp.role || emp.designation || 'Staff',
-        avatar: emp.avatar,
-        baseSalary,
-        dailyRate,
-        workingDays,
-        present: totalPresent,
-        normalPresent,
-        govtHolidayWorked,
-        govtHolidayGranted,
-        ownLeaveDays,
-        unpaidLeaveDays: ownLeaveDays,
-        absent: totalAbsent,
-        otherAbsent,
-        late,
-        halfday,
-        paidLeaveDays,
-        weeklyOffs: sundaysCount,
-        otMinutes,
-        otHours,
-        otPay,
-        otAmount: otPay,
-        govtHolidaySalary,
-        doubleSalaryDays,
-        holidayExtraSalary,
-        doubleSalaryExtraAmount: holidayExtraSalary,
-        doubleSalaryAmount: holidayExtraSalary,
-        unpaidLeaveDeductions,
-        otherAllowances,
-        otherDeductions,
-        deductions: totalDeductions,
-        normalSalary,
-        earnedBase: normalSalary,
-        totalMonthlySalary,
-        finalPayableSalary,
-        isFullPresentEligible,
-        fullPresentBonus,
-        netTotalPayout
-      };
+      return calculateEmployeeMonthlySalary(emp, records, filters);
     });
-  }, [employees, data, calendarInfo]);
+  }, [employees, data, filters]);
 
   // Aggregate Payroll Totals
   const totalPayroll = payrollStats.reduce((sum, p) => sum + p.finalPayableSalary, 0);
@@ -793,15 +637,6 @@ export default function AttendanceReports() {
                           </>
                         )}
                       </div>
-                      {p.late > 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                          ⚠️ {p.late} {p.late === 1 ? 'Day Late' : 'Days Late'}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-emerald-700 bg-emerald-50 font-medium">
-                          ✓ 0 Late (On-Time)
-                        </span>
-                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">

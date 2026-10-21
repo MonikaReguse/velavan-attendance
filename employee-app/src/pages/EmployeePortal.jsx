@@ -32,6 +32,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { api } from '../services/api';
 import { formatTime } from '../services/timeUtils';
+import { calculateEmployeeMonthlySalary } from '../services/salaryCalculator';
 
 export default function EmployeePortal() {
   const { activeEmployee, employees, officeSettings } = useApp();
@@ -274,88 +275,42 @@ export default function EmployeePortal() {
 
   // Salary & Overtime Calculation (Standard 30 Days Payroll Basis, OT in Minutes)
   const salaryCalculation = useMemo(() => {
-    const PAYROLL_DAYS = 30; // Salary calculated days = 30 days fixed standard
-
-    if (baseMonthlySalary <= 0) {
-      return {
-        payrollDays: PAYROLL_DAYS,
-        baseMonthlySalary: 0,
-        dailyRate: 0,
-        hourlyRate: 0,
-        minuteRate: 0,
-        otRatePerHour: 0,
-        otRatePerMinute: 0,
-        payableDays: 0,
-        earnedBasePay: 0,
-        isDoubleSalaryEligible: false,
-        doubleSalaryBonus: 0,
-        totalOtMinutes: summaryKpis.totalOtMinutes,
-        totalOtHours: summaryKpis.totalOtHours,
-        totalOtPay: 0,
-        absentDeduction: 0,
-        halfDayDeduction: 0,
-        totalDeductions: 0,
-        netTotalSalary: 0
-      };
-    }
-
-    // Daily base rate = Base Salary / 30 days
-    const dailyRate = baseMonthlySalary / PAYROLL_DAYS;
-
-    // Shift: 09:30 AM to 06:00 PM = 8h 30m = 8.5 hours = 510 working minutes / day
-    const shiftHours = 8.5;
+    const currentEmp = (employees || []).find(e => e.emp_id === activeEmployee?.emp_id) || activeEmployee || {};
+    const empWithSalary = {
+      ...currentEmp,
+      salary: baseMonthlySalary
+    };
+    const official = calculateEmployeeMonthlySalary(empWithSalary, monthDailyRecords, { selectedMonth });
     const shiftMinutes = 510;
-    const hourlyRate = dailyRate / shiftHours;
-    const minuteRate = dailyRate / shiftMinutes; // Base rate per minute
-
-    // Standard Overtime multiplier: 1.5x of rate
-    const otRatePerHour = hourlyRate * 1.5;
-    const otRatePerMinute = minuteRate * 1.5; // OT rate per minute
-
-    // Loss of Pay Deductions for 30 days standard:
-    const absentDeduction = Math.round(summaryKpis.absent * dailyRate);
-    const halfDayDeduction = Math.round(summaryKpis.halfday * 0.5 * dailyRate);
-    const totalDeductions = absentDeduction + halfDayDeduction;
-
-    // Effective payable days on 30-day basis
-    const payableDays = Math.max(0, Math.round((PAYROLL_DAYS - summaryKpis.absent - (summaryKpis.halfday * 0.5)) * 10) / 10);
-
-    // Earned Base Salary based on 30 days standard
-    const earnedBasePay = Math.max(0, Math.round(baseMonthlySalary - totalDeductions));
-
-    // Zero-Absent Double Salary Incentive Rule:
-    // If employee has 0 Absents and 0 Half-Days in the month (with at least 1 day present),
-    // they qualify for 100% Attendance Double Salary (Extra 100% Base Salary bonus)!
-    const isDoubleSalaryEligible = summaryKpis.absent === 0 && summaryKpis.halfday === 0 && summaryKpis.present > 0;
-    const doubleSalaryBonus = isDoubleSalaryEligible ? baseMonthlySalary : 0;
-
-    // Total Overtime Pay calculated in minutes:
-    const totalOtPay = Math.round(summaryKpis.totalOtMinutes * otRatePerMinute);
-
-    // Net Total Salary for Month = Earned Base + Double Salary Bonus + Overtime Pay
-    const netTotalSalary = earnedBasePay + doubleSalaryBonus + totalOtPay;
+    const minuteRate = official.dailyRate > 0 ? official.dailyRate / shiftMinutes : 0;
+    const otRatePerMinute = minuteRate * 1.5;
 
     return {
-      payrollDays: PAYROLL_DAYS,
+      ...official,
+      payrollDays: 30,
       baseMonthlySalary,
-      dailyRate: Math.round(dailyRate * 100) / 100,
-      hourlyRate: Math.round(hourlyRate * 100) / 100,
+      dailyRate: official.dailyRate,
+      hourlyRate: official.dailyRate > 0 ? Math.round((official.dailyRate / 8.5) * 100) / 100 : 0,
       minuteRate: Math.round(minuteRate * 1000) / 1000,
-      otRatePerHour: Math.round(otRatePerHour * 100) / 100,
+      otRatePerHour: official.dailyRate > 0 ? Math.round(((official.dailyRate / 8.5) * 1.5) * 100) / 100 : 0,
       otRatePerMinute: Math.round(otRatePerMinute * 1000) / 1000,
-      payableDays,
-      earnedBasePay,
-      isDoubleSalaryEligible,
-      doubleSalaryBonus,
-      totalOtMinutes: summaryKpis.totalOtMinutes,
-      totalOtHours: summaryKpis.totalOtHours,
-      totalOtPay,
-      absentDeduction,
-      halfDayDeduction,
-      totalDeductions,
-      netTotalSalary
+      payableDays: Math.max(0, Math.round((30 - official.absentDays) * 10) / 10),
+      earnedBasePay: official.normalSalary,
+      isDoubleSalaryEligible: official.isFullPresentEligible,
+      doubleSalaryBonus: official.doubleSalaryExtraAmount,
+      totalOtMinutes: official.otMinutes,
+      totalOtHours: official.otHours,
+      totalOtPay: official.otAmount,
+      absentDeduction: official.unpaidLeaveDeductions,
+      halfDayDeduction: Math.round(official.halfday * 0.5 * official.dailyRate),
+      totalDeductions: official.totalDeductions,
+      netTotalSalary: official.finalPayableSalary,
+      fullPresentBonus: official.fullPresentBonus,
+      govtHolidaySalary: official.govtHolidaySalary,
+      govtHolidayWorked: official.govtHolidayWorked,
+      govtHolidayGranted: official.govtHolidayGranted
     };
-  }, [baseMonthlySalary, summaryKpis]);
+  }, [baseMonthlySalary, activeEmployee, employees, monthDailyRecords, selectedMonth]);
 
   // Filtered Records for Table
   const filteredRecords = useMemo(() => {
@@ -727,15 +682,15 @@ export default function EmployeePortal() {
                 <p>• <strong>OT Rate per Minute (1.5x):</strong> ₹{salaryCalculation.minuteRate} × 1.5 = <strong>₹{salaryCalculation.otRatePerMinute} / min</strong></p>
               </div>
               <div className="space-y-1">
-                <p>• <strong>Zero-Absent Double Salary Rule:</strong> 0 Absents in Month $\rightarrow$ <strong>+100% Base Pay Bonus (2× Double Salary: +₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')})</strong></p>
-                <p>• <strong>Payable Days:</strong> 30 - {summaryKpis.absent} Absent - {summaryKpis.halfday * 0.5} Half-Days = <strong>{salaryCalculation.payableDays} days</strong></p>
-                <p>• <strong>Earned Base Pay:</strong> ₹{baseMonthlySalary} - Deductions = <strong>₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}</strong></p>
-                <p>• <strong>Total OT Minutes:</strong> <strong>{summaryKpis.totalOtMinutes} mins</strong> ({summaryKpis.overtimeDays} days)</p>
-                <p>• <strong>Overtime Pay:</strong> {summaryKpis.totalOtMinutes} mins × ₹{salaryCalculation.otRatePerMinute}/min = <strong>+₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')}</strong></p>
+                <p>• <strong>Full Attendance Bonus:</strong> 0 Absents in Month $\rightarrow$ <strong>+2 Days Extra Salary (+₹{salaryCalculation.fullPresentBonus.toLocaleString('en-IN')})</strong></p>
+                <p>• <strong>Govt Holiday (Worked):</strong> Double Salary Day $\rightarrow$ <strong>2× Daily Salary (+₹{salaryCalculation.dailyRate} Extra / day)</strong></p>
+                <p>• <strong>Govt Holiday (Granted):</strong> Office Granted Leave $\rightarrow$ <strong>1× Daily Salary (Paid by Office, ₹0 Deduction)</strong></p>
+                <p>• <strong>Employee Own Leave:</strong> Unpaid Leave $\rightarrow$ <strong>-1 Day Daily Rate Deducted (-₹{salaryCalculation.dailyRate})</strong></p>
+                <p>• <strong>Total OT:</strong> <strong>{summaryKpis.totalOtMinutes} mins</strong> (+₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')})</p>
               </div>
             </div>
             <div className="pt-2 border-t border-slate-200 text-[#8b0000] font-bold font-mono text-xs">
-              Net Total Salary = Base Pay (₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}) + Attendance Bonus (+₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}) + Overtime (+₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')}) = <strong>₹{salaryCalculation.netTotalSalary.toLocaleString('en-IN')}</strong>
+              Final Payable Salary = Base Earned (₹{salaryCalculation.earnedBasePay.toLocaleString('en-IN')}) + Holiday/Attendance Extra (+₹{salaryCalculation.doubleSalaryBonus.toLocaleString('en-IN')}) + Overtime (+₹{salaryCalculation.totalOtPay.toLocaleString('en-IN')}) = <strong>₹{salaryCalculation.netTotalSalary.toLocaleString('en-IN')}</strong>
             </div>
           </div>
         )}

@@ -101,16 +101,16 @@ export default function ManualAttendanceUpdate() {
       setEditingId(existing.id || null);
       const hasMorningOnly = existing.clock_in && existing.clock_in !== '--' && 
         (!existing.clock_out || existing.clock_out === '--' || existing.clock_out === '') && 
-        existing.status !== 'absent' && existing.status !== 'weekly_off' && existing.holiday_type !== 'own_leave';
+        existing.status !== 'absent' && existing.status !== 'weekly_off' && existing.holiday_type !== 'own_leave' && existing.holiday_type !== 'govt_holiday_leave';
 
       setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
 
       if (hasMorningOnly) {
-        setLeaveCheckoutPending(false);
-        setClockOut(getCurrentTime24());
-        setNotes('Shift completed (Evening checkout recorded)');
+        setLeaveCheckoutPending(true);
+        setClockOut('');
+        setNotes(existing.notes || 'Morning check-in (Checkout Pending)');
       } else {
-        setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
+        setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : (existing.status === 'absent' || existing.status === 'weekly_off' || existing.holiday_type === 'own_leave' ? '' : '18:00:00'));
         setLeaveCheckoutPending(false);
         setNotes(existing.notes || 'HR manual adjustment');
       }
@@ -343,6 +343,14 @@ export default function ManualAttendanceUpdate() {
     setSelectedEmpId(empId);
     setFeedback(null);
     populateFormForEmpAndDate(empId, selectedDate, true);
+    // Background query for latest authoritative record from persistent database
+    api.getAttendanceRecord(empId, selectedDate).then(res => {
+      const rec = res?.attendance || res;
+      if (rec && rec.emp_id === empId && rec.date === selectedDate) {
+        savePunchLocally(rec);
+        populateFormForEmpAndDate(empId, selectedDate, true, [rec]);
+      }
+    }).catch(() => {});
   };
 
   // Handle switching date - automatically detects day and syncs records
@@ -354,6 +362,15 @@ export default function ManualAttendanceUpdate() {
       setSelectedMonthFilter(newDate.slice(0, 7));
     }
     populateFormForEmpAndDate(selectedEmpId, newDate, true);
+    if (selectedEmpId) {
+      api.getAttendanceRecord(selectedEmpId, newDate).then(res => {
+        const rec = res?.attendance || res;
+        if (rec && rec.emp_id === selectedEmpId && rec.date === newDate) {
+          savePunchLocally(rec);
+          populateFormForEmpAndDate(selectedEmpId, newDate, true, [rec]);
+        }
+      }).catch(() => {});
+    }
   };
 
   // Swift Navigation: Advance to next sequential employee in list
