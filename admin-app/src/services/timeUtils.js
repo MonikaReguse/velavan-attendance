@@ -46,6 +46,31 @@ export function getCurrentTime12() {
 }
 
 /**
+ * Get current time formatted as 24-hour HH:MM:SS in Asia/Kolkata timezone
+ */
+export function getCurrentTime24() {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(new Date());
+}
+
+/**
+ * Get today's date formatted as YYYY-MM-DD in Asia/Kolkata timezone
+ */
+export function getTodayDateIST() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+}
+
+/**
  * Check if a clock-in time counts as late arrival (past 09:40 AM grace period)
  */
 export function isLateArrival(clockIn, status) {

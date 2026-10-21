@@ -201,6 +201,19 @@ function getCurrentTime() {
   }).format(new Date());
 }
 
+// Helper: Check if check-in time exceeds grace period (09:40 AM)
+function checkIsLateArrival(clockInTime, officeStartTime = '09:30', graceMinutes = 10) {
+  if (!clockInTime || clockInTime === '--' || clockInTime === 'OD') return false;
+  try {
+    const [startH, startM] = officeStartTime.split(':').map(Number);
+    const limitMinutes = startH * 60 + startM + Number(graceMinutes || 10);
+    const [inH, inM] = clockInTime.split(':').map(Number);
+    return (inH * 60 + inM) > limitMinutes;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------- AUTH (PHONE OTP) ----------------
 const otpStore = new Map(); // normalizedPhone -> { code, expiresAt, emp_id }
 
@@ -1404,7 +1417,10 @@ app.get('/api/attendance/today-summary', (req, res) => {
     `).get(today).count;
 
     const currentlyIn = db.prepare(`
-      SELECT COUNT(*) as count FROM attendance WHERE date = ? AND clock_out IS NULL
+      SELECT COUNT(*) as count FROM attendance 
+      WHERE date = ? 
+        AND (clock_out IS NULL OR clock_out = '' OR clock_out = '--')
+        AND status != 'absent' AND status != 'weekly_off'
     `).get(today).count;
 
     const onLeaveCount = db.prepare(`
@@ -1524,10 +1540,10 @@ app.get('/api/attendance/record', (req, res) => {
   }
 });
 
-// Admin Manual Attendance Adjustment (Create or Update)
+// Admin Manual Attendance Adjustment (Create or Update - Supports Separate Login & Logout Entry)
 app.post('/api/attendance/manual', (req, res) => {
   try {
-    const { id, emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type } = req.body;
+    const { id, emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type, mode, leave_checkout_pending } = req.body;
     if (!emp_id) {
       return res.status(400).json({ error: 'Employee ID is required.' });
     }
@@ -1560,7 +1576,7 @@ app.post('/api/attendance/manual', (req, res) => {
     const manualTx = db.transaction(() => {
       // 1. Resolve existing record by (emp_id, date) first, or by id
       let existing = db.prepare('SELECT * FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
-      if (!existing && id && id !== '0') {
+      if (!existing && id && id !== '0' && id !== 'undefined' && id !== 'null') {
         const byId = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
         if (byId) {
           existing = byId;
@@ -1571,9 +1587,9 @@ app.post('/api/attendance/manual', (req, res) => {
       const finalHolidayType = (holiday_type && String(holiday_type).trim()) ? String(holiday_type).trim() : (existing?.holiday_type || 'normal');
 
       // 2. Determine clean clock_in & clock_out
-      // PRESERVE FACELOCK TIME: If employee clocked in via FaceLock and new clock_in is empty/'--', keep original FaceLock clock_in!
+      // PRESERVE MORNING TIME: If employee clocked in (via FaceLock or morning manual entry), preserve their morning clock_in!
       let finalClockIn = '--';
-      if (status !== 'absent' && status !== 'weekly_off') {
+      if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
         if (clock_in && clock_in !== '--' && String(clock_in).trim() !== '' && String(clock_in).trim() !== 'null') {
           finalClockIn = String(clock_in).trim();
         } else if (existing && existing.clock_in && existing.clock_in !== '--') {
@@ -1583,44 +1599,86 @@ app.post('/api/attendance/manual', (req, res) => {
         }
       }
 
+      // 3. Determine clean clock_out:
+      // If mode === 'morning_login' or leave_checkout_pending is true, explicitly leave checkout pending ('--')
       let finalClockOut = '--';
-      if (status !== 'absent' && status !== 'weekly_off') {
-        if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
+      if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
+        if (mode === 'morning_login' || leave_checkout_pending === true) {
+          finalClockOut = '--';
+        } else if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
           finalClockOut = String(clock_out).trim();
         } else if (existing && existing.clock_out && existing.clock_out !== '--') {
           finalClockOut = existing.clock_out;
+        } else {
+          finalClockOut = '--';
         }
       }
 
       let totalHours = 0;
       let otHours = 0;
       let finalOtMinutes = 0;
+      let finalStatus = status;
 
       const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || finalClockIn === 'OD' || finalClockOut === 'OD';
-      if (isOD) {
+
+      if (status === 'absent' || status === 'weekly_off' || finalHolidayType === 'own_leave') {
+        totalHours = 0;
+        otHours = 0;
+        finalOtMinutes = 0;
+        finalStatus = (finalHolidayType === 'own_leave' ? 'absent' : status);
+      } else if (isOD) {
         totalHours = 8.5;
         finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
         otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
-      } else {
-        const hasValidTimes = finalClockIn !== '--' && finalClockOut !== '--' && status !== 'absent' && status !== 'weekly_off';
-        if (hasValidTimes) {
-          totalHours = calculateHours(finalClockIn, finalClockOut);
-          const ot = calculateOT(
-            finalClockOut,
-            finalClockIn,
-            settings.office_start_time || '09:30',
-            settings.office_end_time || '18:00',
-            parseInt(settings.ot_buffer_minutes || '20', 10)
-          );
-          otHours = ot.otHours;
-          finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+        finalStatus = status || 'od';
+      } else if (finalClockIn !== '--' && finalClockOut === '--') {
+        // PARTIAL ATTENDANCE: Morning Check-in Recorded, Evening Checkout Pending!
+        totalHours = 0;
+        otHours = 0;
+        finalOtMinutes = 0;
+        const isLate = checkIsLateArrival(finalClockIn, settings.office_start_time || '09:30', settings.grace_period_minutes || '10');
+        finalStatus = isLate ? 'late' : (status === 'present' ? 'checked_in' : (status || 'checked_in'));
+      } else if (finalClockIn !== '--' && finalClockOut !== '--') {
+        // FULL SHIFT: Both In & Out Available - Calculate Hours, OT, and Final Status!
+        totalHours = calculateHours(finalClockIn, finalClockOut);
+        const ot = calculateOT(
+          finalClockOut,
+          finalClockIn,
+          settings.office_start_time || '09:30',
+          settings.office_end_time || '18:00',
+          parseInt(settings.ot_buffer_minutes || '20', 10)
+        );
+        otHours = ot.otHours;
+        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+
+        const isLate = checkIsLateArrival(finalClockIn, settings.office_start_time || '09:30', settings.grace_period_minutes || '10');
+        const halfDayThreshold = parseFloat(settings.half_day_threshold_hours || '4.5');
+
+        if (finalHolidayType === 'govt_holiday_worked') {
+          finalStatus = 'present';
+        } else if (status === 'checked_in' || status === 'present' || !status || status === 'late' || status === 'half_day') {
+          if (totalHours < halfDayThreshold && !isLate) {
+            finalStatus = 'half_day';
+          } else if (isLate) {
+            finalStatus = 'late';
+          } else {
+            finalStatus = 'present';
+          }
+        } else {
+          finalStatus = status;
         }
       }
 
-      // PRESERVE BIOMETRIC PUNCH PHOTO & METHOD: If existing record has biometric FaceLock photo, NEVER erase or wipe it!
+      // PRESERVE BIOMETRIC PUNCH PHOTO & METHOD: If existing record has biometric FaceLock photo or method, NEVER erase it!
       const photoToKeep = (existing && existing.punch_photo) ? existing.punch_photo : (emp?.avatar || null);
       const methodToKeep = (existing && existing.method) ? existing.method : 'manual';
-      const finalNotes = (notes && notes.trim()) ? notes.trim() : (existing?.notes || 'HR manual adjustment');
+      
+      let finalNotes = (notes && notes.trim()) ? notes.trim() : (existing?.notes || 'HR manual adjustment');
+      if (finalClockOut === '--' && (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry')) {
+        finalNotes = 'Morning check-in (Checkout Pending)';
+      } else if (existing && existing.clock_out === '--' && finalClockOut !== '--' && (!notes || notes === 'Morning check-in (Checkout Pending)')) {
+        finalNotes = 'Shift completed (Evening checkout recorded)';
+      }
 
       if (existing) {
         // UPDATE existing record safely without creating duplicates
@@ -1636,7 +1694,7 @@ app.post('/api/attendance/manual', (req, res) => {
           totalHours,
           otHours,
           finalOtMinutes,
-          status,
+          finalStatus,
           finalNotes,
           methodToKeep,
           photoToKeep,
@@ -1658,7 +1716,7 @@ app.post('/api/attendance/manual', (req, res) => {
           totalHours,
           otHours,
           finalOtMinutes,
-          status,
+          finalStatus,
           finalNotes,
           photoToKeep,
           finalHolidayType
@@ -1699,60 +1757,104 @@ app.post('/api/attendance/manual', (req, res) => {
 app.put('/api/attendance/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type } = req.body;
-    if (emp_id) {
-      const emp = db.prepare('SELECT id, emp_id, name FROM employees WHERE emp_id = ?').get(emp_id);
-      if (!emp) {
-        try {
-          db.prepare(`
-            INSERT OR IGNORE INTO employees (emp_id, name, email, department, role, status)
-            VALUES (?, ?, ?, ?, ?, 'active')
-          `).run(
-            emp_id,
-            emp_id,
-            `${emp_id.toLowerCase()}@velavanproperties.com`,
-            'Digital Marketing',
-            'Staff'
-          );
-        } catch (e) {}
+    const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type, mode, leave_checkout_pending } = req.body;
+    
+    const existing = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Attendance record not found' });
+    }
+
+    const settings = getSettings();
+    const finalHolidayType = (holiday_type && String(holiday_type).trim()) ? String(holiday_type).trim() : (existing.holiday_type || 'normal');
+
+    let finalClockIn = '--';
+    if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
+      if (clock_in && clock_in !== '--' && String(clock_in).trim() !== '' && String(clock_in).trim() !== 'null') {
+        finalClockIn = String(clock_in).trim();
+      } else if (existing.clock_in && existing.clock_in !== '--') {
+        finalClockIn = existing.clock_in;
+      } else {
+        finalClockIn = '09:30:00';
       }
     }
-    const settings = getSettings();
+
+    let finalClockOut = '--';
+    if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
+      if (mode === 'morning_login' || leave_checkout_pending === true) {
+        finalClockOut = '--';
+      } else if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
+        finalClockOut = String(clock_out).trim();
+      } else if (existing.clock_out && existing.clock_out !== '--') {
+        finalClockOut = existing.clock_out;
+      } else {
+        finalClockOut = '--';
+      }
+    }
+
     let totalHours = 0;
     let otHours = 0;
     let finalOtMinutes = 0;
+    let finalStatus = status || existing.status;
 
-    const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || clock_in === 'OD' || clock_out === 'OD';
-    if (isOD) {
+    const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || finalClockIn === 'OD' || finalClockOut === 'OD';
+
+    if (status === 'absent' || status === 'weekly_off' || finalHolidayType === 'own_leave') {
+      totalHours = 0;
+      otHours = 0;
+      finalOtMinutes = 0;
+      finalStatus = (finalHolidayType === 'own_leave' ? 'absent' : status);
+    } else if (isOD) {
       totalHours = 8.5;
       finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
       otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
-    } else {
-      const hasValidTimes = clock_in && clock_out && clock_in !== '--' && clock_out !== '--' && status !== 'absent' && status !== 'weekly_off';
-      if (hasValidTimes) {
-        totalHours = calculateHours(clock_in, clock_out);
-        const ot = calculateOT(
-          clock_out,
-          clock_in,
-          settings.office_start_time || '09:30',
-          settings.office_end_time || '18:00',
-          parseInt(settings.ot_buffer_minutes || '20', 10)
-        );
-        otHours = ot.otHours;
-        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+      finalStatus = status || 'od';
+    } else if (finalClockIn !== '--' && finalClockOut === '--') {
+      // Partial Attendance
+      totalHours = 0;
+      otHours = 0;
+      finalOtMinutes = 0;
+      const isLate = checkIsLateArrival(finalClockIn, settings.office_start_time || '09:30', settings.grace_period_minutes || '10');
+      finalStatus = isLate ? 'late' : (status === 'present' ? 'checked_in' : (status || 'checked_in'));
+    } else if (finalClockIn !== '--' && finalClockOut !== '--') {
+      totalHours = calculateHours(finalClockIn, finalClockOut);
+      const ot = calculateOT(
+        finalClockOut,
+        finalClockIn,
+        settings.office_start_time || '09:30',
+        settings.office_end_time || '18:00',
+        parseInt(settings.ot_buffer_minutes || '20', 10)
+      );
+      otHours = ot.otHours;
+      finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : ot.otMinutes;
+
+      const isLate = checkIsLateArrival(finalClockIn, settings.office_start_time || '09:30', settings.grace_period_minutes || '10');
+      const halfDayThreshold = parseFloat(settings.half_day_threshold_hours || '4.5');
+
+      if (finalHolidayType === 'govt_holiday_worked') {
+        finalStatus = 'present';
+      } else if (status === 'checked_in' || status === 'present' || !status || status === 'late' || status === 'half_day') {
+        if (totalHours < halfDayThreshold && !isLate) {
+          finalStatus = 'half_day';
+        } else if (isLate) {
+          finalStatus = 'late';
+        } else {
+          finalStatus = 'present';
+        }
+      } else {
+        finalStatus = status;
       }
     }
 
-    const cleanIn = (clock_in && String(clock_in).trim() && String(clock_in).trim() !== 'null' && String(clock_in).trim() !== 'undefined') ? String(clock_in).trim() : '--';
-    const cleanOut = (clock_out && String(clock_out).trim() && String(clock_out).trim() !== 'null' && String(clock_out).trim() !== 'undefined') ? String(clock_out).trim() : '--';
-    const cIn = (status === 'absent' || status === 'weekly_off') ? '--' : cleanIn;
-    const cOut = (status === 'absent' || status === 'weekly_off') ? '--' : cleanOut;
+    const photoToKeep = existing.punch_photo || null;
+    const methodToKeep = existing.method || 'manual';
+    const finalNotes = (notes && notes.trim()) ? notes.trim() : (existing.notes || 'HR manual adjustment');
 
     db.prepare(`
       UPDATE attendance
-      SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = 'manual', holiday_type = COALESCE(?, holiday_type, 'normal')
+      SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?, holiday_type = ?
       WHERE id = ?
-    `).run(cIn, cOut, totalHours, otHours, finalOtMinutes, status, notes || 'HR manual adjustment', holiday_type, id);
+    `).run(finalClockIn, finalClockOut, totalHours, otHours, finalOtMinutes, finalStatus, finalNotes, methodToKeep, photoToKeep, finalHolidayType, id);
+
     saveDbSnapshot();
     res.json({ success: true, updated: true, id });
   } catch (err) {

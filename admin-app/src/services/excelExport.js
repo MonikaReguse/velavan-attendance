@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { formatTime } from './timeUtils';
 
 /**
  * Format currency helper
@@ -241,6 +242,53 @@ export const exportMonthlyPayrollExcel = ({
   ];
 
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Executive Summary');
+
+  // Sheet 3: Daily Attendance Logs Sheet with Login/Logout Timings & Pending Tracking
+  if (Array.isArray(attendanceData) && attendanceData.length > 0) {
+    const dailyLogRows = attendanceData.map(r => {
+      const isPendingCheckout = (!r.clock_out || r.clock_out === '--' || r.status === 'checked_in') && r.status !== 'absent' && r.status !== 'weekly_off' && r.holiday_type !== 'own_leave' && r.holiday_type !== 'govt_holiday_leave';
+      const outDisplay = (r.clock_out && r.clock_out !== '--') ? formatTime(r.clock_out) : isPendingCheckout ? '⏳ Checkout Pending' : '--';
+
+      let statusDisplay = 'Present';
+      if (isPendingCheckout) statusDisplay = 'Checked In — Checkout Pending';
+      else if (r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD') statusDisplay = 'On Duty (OD)';
+      else if (r.holiday_type === 'govt_holiday_worked') statusDisplay = 'Govt Holiday (Worked - 2× Pay)';
+      else if (r.holiday_type === 'govt_holiday_leave') statusDisplay = 'Govt Holiday (Office Granted)';
+      else if (r.holiday_type === 'own_leave') statusDisplay = 'Employee Own Leave (Unpaid)';
+      else if (r.status === 'late') statusDisplay = 'Late Arrival';
+      else if (r.status === 'half_day') statusDisplay = 'Half Day';
+      else if (r.status === 'absent') statusDisplay = 'Absent';
+      else if (r.status === 'weekly_off') statusDisplay = 'Weekly Off';
+
+      return {
+        'Date': r.date || '--',
+        'Employee ID': r.emp_id || '--',
+        'Employee Name': r.employee_name || r.name || '--',
+        'Status': statusDisplay,
+        'Login (Check-in)': r.clock_in ? formatTime(r.clock_in) : '--',
+        'Logout (Check-out)': outDisplay,
+        'Working Hours': (r.total_hours !== undefined && r.total_hours !== null && r.total_hours > 0) ? Number(r.total_hours).toFixed(2) : (isPendingCheckout ? 'In Progress' : '0.00'),
+        'Overtime (Mins)': r.ot_minutes || 0,
+        'Method': (r.method || 'manual').toUpperCase(),
+        'Notes / Reason': r.notes || '--'
+      };
+    });
+
+    const wsDaily = XLSX.utils.json_to_sheet(dailyLogRows);
+    wsDaily['!cols'] = [
+      { wch: 14 }, // Date
+      { wch: 14 }, // Employee ID
+      { wch: 24 }, // Employee Name
+      { wch: 32 }, // Status
+      { wch: 18 }, // Login
+      { wch: 22 }, // Logout
+      { wch: 16 }, // Working Hours
+      { wch: 16 }, // Overtime
+      { wch: 16 }, // Method
+      { wch: 32 }  // Notes
+    ];
+    XLSX.utils.book_append_sheet(wb, wsDaily, 'Daily Attendance Logs');
+  }
 
   // 4. Download file
   const fileNameMonth = monthName.replace(/\s+/g, '_');

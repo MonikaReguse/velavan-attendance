@@ -22,10 +22,14 @@ import {
   Filter,
   PlusCircle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Sun,
+  Moon,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { api } from '../services/api';
-import { formatTime } from '../services/timeUtils';
+import { formatTime, getCurrentTime24, getTodayDateIST } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
 
 export default function ManualAttendanceUpdate() {
@@ -51,9 +55,10 @@ export default function ManualAttendanceUpdate() {
   // Form State
   const [editingId, setEditingId] = useState(null);
   const [selectedEmpId, setSelectedEmpId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() => getTodayDateIST());
   const [clockIn, setClockIn] = useState('09:30:00');
   const [clockOut, setClockOut] = useState('18:00:00');
+  const [leaveCheckoutPending, setLeaveCheckoutPending] = useState(false); // Morning login only (checkout pending)
   const [status, setStatus] = useState('present');
   const [holidayType, setHolidayType] = useState('normal'); // 'normal' | 'govt_holiday_worked' | 'govt_holiday_leave' | 'own_leave'
   const [customOtMinutes, setCustomOtMinutes] = useState('');
@@ -200,6 +205,15 @@ export default function ManualAttendanceUpdate() {
     return () => { isCancelled = true; };
   }, [selectedDate]);
 
+  // Helper to determine if selected employee has morning check-in recorded with checkout pending
+  const isExistingCheckoutPending = useMemo(() => {
+    if (!existingRecord) return false;
+    const hasValidIn = existingRecord.clock_in && existingRecord.clock_in !== '--';
+    const noValidOut = !existingRecord.clock_out || existingRecord.clock_out === '--' || existingRecord.clock_out === '';
+    const notAbs = existingRecord.status !== 'absent' && existingRecord.status !== 'weekly_off' && existingRecord.holiday_type !== 'own_leave';
+    return hasValidIn && noValidOut && notAbs;
+  }, [existingRecord]);
+
   // Reactive form sync: Populate the form inputs with the database record for selected employee & date
   // (Only applies when user is not manually editing another row by ID)
   useEffect(() => {
@@ -207,12 +221,25 @@ export default function ManualAttendanceUpdate() {
     if (!selectedEmpId || !selectedDate) return;
 
     if (existingRecord) {
+      const hasMorningOnly = existingRecord.clock_in && existingRecord.clock_in !== '--' && (!existingRecord.clock_out || existingRecord.clock_out === '--' || existingRecord.clock_out === '') && existingRecord.status !== 'absent' && existingRecord.status !== 'weekly_off' && existingRecord.holiday_type !== 'own_leave';
+
       setClockIn(existingRecord.clock_in && existingRecord.clock_in !== '--' ? existingRecord.clock_in : '09:30:00');
-      setClockOut(existingRecord.clock_out && existingRecord.clock_out !== '--' ? existingRecord.clock_out : '18:00:00');
+      
+      if (hasMorningOnly) {
+        // Morning login already done! In the evening, the admin wants to enter logout time.
+        // Default leaveCheckoutPending to false and prefill clockOut with current IST time or 18:00:00.
+        setLeaveCheckoutPending(false);
+        setClockOut(getCurrentTime24());
+        setNotes('Shift completed (Evening checkout recorded)');
+      } else {
+        setClockOut(existingRecord.clock_out && existingRecord.clock_out !== '--' ? existingRecord.clock_out : '18:00:00');
+        setLeaveCheckoutPending(false);
+        setNotes(existingRecord.notes || 'HR manual adjustment');
+      }
+
       setStatus(existingRecord.status || 'present');
       setHolidayType(existingRecord.holiday_type || 'normal');
       setCustomOtMinutes((existingRecord.ot_minutes !== undefined && existingRecord.ot_minutes !== null && Number(existingRecord.ot_minutes) > 0) ? String(existingRecord.ot_minutes) : '');
-      setNotes(existingRecord.notes || 'HR manual adjustment');
     } else {
       let isSunday = false;
       try {
@@ -223,6 +250,7 @@ export default function ManualAttendanceUpdate() {
       if (isSunday) {
         setClockIn('');
         setClockOut('');
+        setLeaveCheckoutPending(false);
         setStatus('weekly_off');
         setHolidayType('normal');
         setCustomOtMinutes('0');
@@ -230,6 +258,7 @@ export default function ManualAttendanceUpdate() {
       } else {
         setClockIn('09:30:00');
         setClockOut('18:00:00');
+        setLeaveCheckoutPending(false);
         setStatus('present');
         setHolidayType('normal');
         setCustomOtMinutes('');
@@ -272,7 +301,24 @@ export default function ManualAttendanceUpdate() {
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
     if (status === 'absent' || (!clockIn && !clockOut) || (clockIn === '--' && clockOut === '--')) {
-      return { totalHours: 0, otMinutes: 0, previewStatus: status };
+      return { totalHours: 0, otMinutes: 0, previewStatus: status, isPending: false };
+    }
+
+    // Partial Attendance: Morning Login Only (Checkout Pending)
+    if (leaveCheckoutPending || !clockOut || clockOut === '--' || clockOut === '') {
+      const toMins = (t) => {
+        if (!t || t === '--' || t === 'OD') return 0;
+        const [h, m] = t.split(':').map(Number);
+        return (h || 0) * 60 + (m || 0);
+      };
+      const inM = toMins(clockIn);
+      const isLate = inM > 580; // After 09:40 AM
+      return { 
+        totalHours: 0, 
+        otMinutes: 0, 
+        previewStatus: isLate ? 'late' : 'checked_in', 
+        isPending: true 
+      };
     }
 
     // On Duty (OD) counts as standard full working day (8.5 hrs)
@@ -282,7 +328,7 @@ export default function ManualAttendanceUpdate() {
       if (customOtMinutes !== '' && !isNaN(Number(customOtMinutes))) {
         ot = Number(customOtMinutes);
       }
-      return { totalHours: 8.5, otMinutes: ot, previewStatus: 'od' };
+      return { totalHours: 8.5, otMinutes: ot, previewStatus: 'od', isPending: false };
     }
 
     const toMins = (t) => {
@@ -314,8 +360,14 @@ export default function ManualAttendanceUpdate() {
       otMinutes = Number(customOtMinutes);
     }
 
-    return { totalHours, otMinutes, previewStatus: inM > 580 ? 'late' : status };
-  }, [clockIn, clockOut, status, customOtMinutes]);
+    const isLate = inM > 580;
+    let previewStatus = status;
+    if (status === 'checked_in' || status === 'present' || status === 'late' || status === 'half_day') {
+      previewStatus = (totalHours < 4.5 && !isLate) ? 'half_day' : (isLate ? 'late' : 'present');
+    }
+
+    return { totalHours, otMinutes, previewStatus, isPending: false };
+  }, [clockIn, clockOut, status, customOtMinutes, leaveCheckoutPending]);
 
   // Handle Holiday / Leave Type selection
   const handleHolidayTypeChange = (newType) => {
@@ -411,10 +463,26 @@ export default function ManualAttendanceUpdate() {
 
   // Quick Preset Handlers
   const applyPreset = (presetName) => {
-    if (presetName === 'on_time') {
+    if (presetName === 'morning_login') {
+      setHolidayType('normal');
+      setClockIn('09:30:00');
+      setClockOut('');
+      setLeaveCheckoutPending(true);
+      setStatus('checked_in');
+      setCustomOtMinutes('0');
+      setNotes('Morning check-in (Checkout Pending)');
+    } else if (presetName === 'evening_logout') {
+      setHolidayType('normal');
+      setLeaveCheckoutPending(false);
+      if (!clockIn || clockIn === '--') setClockIn('09:30:00');
+      setClockOut(getCurrentTime24());
+      setStatus('present');
+      setNotes('Shift completed (Evening checkout recorded)');
+    } else if (presetName === 'on_time') {
       setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:00:00');
+      setLeaveCheckoutPending(false);
       setStatus('present');
       setCustomOtMinutes('');
       setNotes('Full Day (On-Time 09:30 AM – 06:00 PM)');
@@ -423,6 +491,7 @@ export default function ManualAttendanceUpdate() {
       setStatus('present');
       setClockIn('09:30:00');
       setClockOut('18:00:00');
+      setLeaveCheckoutPending(false);
       setCustomOtMinutes('');
       setNotes('Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)');
     } else if (presetName === 'govt_holiday_leave') {
@@ -430,6 +499,7 @@ export default function ManualAttendanceUpdate() {
       setStatus('present');
       setClockIn('--');
       setClockOut('--');
+      setLeaveCheckoutPending(false);
       setCustomOtMinutes('0');
       setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
     } else if (presetName === 'own_leave') {
@@ -437,12 +507,14 @@ export default function ManualAttendanceUpdate() {
       setStatus('absent');
       setClockIn('--');
       setClockOut('--');
+      setLeaveCheckoutPending(false);
       setCustomOtMinutes('0');
       setNotes('Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)');
     } else if (presetName === 'od_full') {
       setHolidayType('normal');
       setClockIn('OD');
       setClockOut('OD');
+      setLeaveCheckoutPending(false);
       setStatus('od');
       setCustomOtMinutes('0');
       setNotes('Full Day OD (On Duty - Official Client / Site Visit)');
@@ -450,6 +522,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('OD');
       setClockOut('18:00:00');
+      setLeaveCheckoutPending(false);
       setStatus('login_od');
       setCustomOtMinutes('');
       setNotes('Morning OD (Login On Duty - Client / Field Work)');
@@ -457,6 +530,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('OD');
+      setLeaveCheckoutPending(false);
       setStatus('logout_od');
       setCustomOtMinutes('');
       setNotes('Evening OD (Logout On Duty - Client / Site Visit)');
@@ -464,6 +538,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:20:00');
+      setLeaveCheckoutPending(false);
       setStatus('present');
       setCustomOtMinutes('20');
       setNotes('Regular Shift + 20 mins Overtime (Exit 06:20 PM)');
@@ -471,6 +546,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('18:30:00');
+      setLeaveCheckoutPending(false);
       setStatus('present');
       setCustomOtMinutes('30');
       setNotes('Regular Shift + 30 mins Overtime (Exit 06:30 PM)');
@@ -478,6 +554,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('09:30:00');
       setClockOut('14:00:00');
+      setLeaveCheckoutPending(false);
       setStatus('half_day');
       setCustomOtMinutes('0');
       setNotes('Half-Day attendance approved by management');
@@ -485,6 +562,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('');
       setClockOut('');
+      setLeaveCheckoutPending(false);
       setStatus('absent');
       setCustomOtMinutes('0');
       setNotes('Leave / Absent (Loss of Pay)');
@@ -492,6 +570,7 @@ export default function ManualAttendanceUpdate() {
       setHolidayType('normal');
       setClockIn('');
       setClockOut('');
+      setLeaveCheckoutPending(false);
       setStatus('weekly_off');
       setCustomOtMinutes('0');
       setNotes('Weekly Off (Paid Sunday Rest)');
@@ -505,14 +584,48 @@ export default function ManualAttendanceUpdate() {
     setSelectedEmpId(record.emp_id);
     setSelectedDate(record.date);
     setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
-    setClockOut((record.clock_out && record.clock_out !== '--') ? record.clock_out : '18:00:00');
+
+    const isPending = (!record.clock_out || record.clock_out === '--' || record.clock_out === '') && record.status !== 'absent' && record.status !== 'weekly_off' && record.holiday_type !== 'own_leave';
+
+    if (isPending) {
+      setLeaveCheckoutPending(false);
+      setClockOut(getCurrentTime24());
+      setNotes('Shift completed (Evening checkout recorded)');
+      setFeedback({
+        type: 'success',
+        message: `☀️ Loaded morning check-in (${formatTime(record.clock_in)}) for ${record.employee_name || record.emp_id}. Enter evening logout time and click Save.`
+      });
+    } else {
+      setClockOut((record.clock_out && record.clock_out !== '--') ? record.clock_out : '18:00:00');
+      setLeaveCheckoutPending(false);
+      setNotes(record.notes || 'HR manual adjustment');
+      setFeedback({
+        type: 'success',
+        message: `Loaded record #${record.id} for ${record.employee_name || record.emp_id}. Make changes and click Update.`
+      });
+    }
+
     setStatus(record.status || 'present');
     setHolidayType(record.holiday_type || 'normal');
     setCustomOtMinutes((record.ot_minutes !== undefined && record.ot_minutes !== null && Number(record.ot_minutes) > 0) ? String(record.ot_minutes) : '');
-    setNotes(record.notes || 'HR manual adjustment');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Dedicated 1-click handler to log evening logout from the recent logs list
+  const handleEnterLogout = (record) => {
+    if (!record) return;
+    setEditingId(record.id);
+    setSelectedEmpId(record.emp_id);
+    setSelectedDate(record.date);
+    setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
+    setClockOut(getCurrentTime24());
+    setLeaveCheckoutPending(false);
+    setStatus(record.status || 'present');
+    setHolidayType(record.holiday_type || 'normal');
+    setNotes('Shift completed (Evening checkout recorded)');
     setFeedback({
       type: 'success',
-      message: `Loaded record #${record.id} for ${record.employee_name || record.emp_id}. Make changes and click Update.`
+      message: `☀️ Morning check-in (${formatTime(record.clock_in)}) loaded for ${record.employee_name || record.emp_id}. Evening logout set to ${formatTime(getCurrentTime24())}. Review and click Save!`
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -522,6 +635,7 @@ export default function ManualAttendanceUpdate() {
     setEditingId(null);
     setClockIn('09:30:00');
     setClockOut('18:00:00');
+    setLeaveCheckoutPending(false);
     setStatus('present');
     setHolidayType('normal');
     setCustomOtMinutes('');
@@ -578,7 +692,7 @@ export default function ManualAttendanceUpdate() {
         targetId = existingRecord.id;
       }
 
-      // Auto-harmonize status with holiday_type
+      // Auto-harmonize status with holiday_type and checkout state
       let finalStatus = status;
       if (holidayType === 'own_leave') {
         finalStatus = 'absent';
@@ -586,16 +700,20 @@ export default function ManualAttendanceUpdate() {
         finalStatus = 'present';
       }
 
+      const isCheckoutPendingNow = (leaveCheckoutPending || !clockOut || clockOut === '--' || clockOut === '') && (finalStatus !== 'absent' && finalStatus !== 'weekly_off' && holidayType !== 'own_leave');
+
       const payload = {
         id: targetId,
         emp_id: selectedEmpId,
         date: selectedDate,
         clock_in: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave') ? '--' : (clockIn || '--'),
-        clock_out: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave') ? '--' : (clockOut || '--'),
-        status: finalStatus,
+        clock_out: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave' || isCheckoutPendingNow) ? '--' : (clockOut || '--'),
+        status: isCheckoutPendingNow ? (calculatedStats.previewStatus === 'late' ? 'late' : 'checked_in') : finalStatus,
         holiday_type: holidayType,
-        notes: trimmedNotes || (isODActive ? 'Client Site Visit' : 'HR manual attendance entry'),
-        ot_minutes: customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes
+        notes: trimmedNotes || (isODActive ? 'Client Site Visit' : (isCheckoutPendingNow ? 'Morning check-in (Checkout Pending)' : (isExistingCheckoutPending ? 'Shift completed (Evening checkout recorded)' : 'HR manual attendance entry'))),
+        ot_minutes: isCheckoutPendingNow ? 0 : (customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes),
+        mode: isCheckoutPendingNow ? 'morning_login' : (isExistingCheckoutPending ? 'evening_logout' : 'full'),
+        leave_checkout_pending: isCheckoutPendingNow
       };
 
       const res = await api.recordManualAttendance(payload);
@@ -610,9 +728,11 @@ export default function ManualAttendanceUpdate() {
           designation: currentEmployee?.role || currentEmployee?.designation,
           punch_photo: res.attendance?.punch_photo || existingRecord?.punch_photo || undefined,
           method: res.attendance?.method || existingRecord?.method || 'manual',
-          total_hours: calculatedStats.totalHours,
-          ot_hours: calculatedStats.otMinutes > 0 ? Number((calculatedStats.otMinutes / 60).toFixed(2)) : 0,
-          holiday_type: holidayType
+          total_hours: isCheckoutPendingNow ? 0 : calculatedStats.totalHours,
+          ot_hours: (isCheckoutPendingNow || calculatedStats.otMinutes <= 0) ? 0 : Number((calculatedStats.otMinutes / 60).toFixed(2)),
+          ot_minutes: isCheckoutPendingNow ? 0 : calculatedStats.otMinutes,
+          holiday_type: holidayType,
+          status: payload.status
         };
         savePunchLocally(savedPunch);
 
@@ -622,11 +742,19 @@ export default function ManualAttendanceUpdate() {
         // CRITICAL FIX: Always reset editingId to null! Never trap the user in edit mode!
         setEditingId(null);
 
+        let successMsg = wasEditing
+          ? `Attendance successfully updated for ${empName} on ${selectedDate}!`
+          : `Attendance successfully recorded for ${empName} on ${selectedDate}!`;
+
+        if (isCheckoutPendingNow) {
+          successMsg = `☀️ Morning check-in recorded for ${empName} on ${selectedDate} at ${formatTime(payload.clock_in)}. (Checkout Pending)`;
+        } else if (isExistingCheckoutPending) {
+          successMsg = `🌙 Evening check-out recorded for ${empName} on ${selectedDate} at ${formatTime(payload.clock_out)}. Shift completed (${calculatedStats.totalHours} hrs)!`;
+        }
+
         setFeedback({
           type: 'success',
-          message: wasEditing
-            ? `Attendance successfully updated for ${empName} on ${selectedDate}!`
-            : `Attendance successfully recorded for ${empName} on ${selectedDate}!`
+          message: successMsg
         });
 
         // Refresh recent logs from database
@@ -899,7 +1027,47 @@ export default function ManualAttendanceUpdate() {
             </div>
 
             {/* Attendance Status Context Banner for currently selected employee */}
-            {isCurrentMarked ? (
+            {isExistingCheckoutPending ? (
+              <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-xs">
+                <div className="flex items-start space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0 text-amber-800">
+                    <Sun className="w-4 h-4 text-amber-700" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-1.5 flex-wrap">
+                      <span className="font-black text-amber-900 text-sm">Morning Check-In Recorded:</span>
+                      <span className="font-mono font-bold bg-amber-200/80 text-amber-950 px-2 py-0.5 rounded text-xs border border-amber-300">
+                        {formatTime(existingRecord?.clock_in)}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-100 text-orange-900 border border-orange-300 animate-pulse">
+                        ⏳ Checkout Pending
+                      </span>
+                      {existingRecord?.method === 'facelock' && (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300">
+                          👤 Verified via FaceLock
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Ready to log evening departure. Enter check-out time below to update this record and complete today's shift.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLeaveCheckoutPending(false);
+                      setClockOut(getCurrentTime24());
+                    }}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center space-x-1 transition-all shadow-xs"
+                  >
+                    <Moon className="w-3.5 h-3.5" />
+                    <span>Set Logout to Now</span>
+                  </button>
+                </div>
+              </div>
+            ) : isCurrentMarked ? (
               editingId ? (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900">
                   <div className="flex items-center space-x-2">
@@ -958,7 +1126,33 @@ export default function ManualAttendanceUpdate() {
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 ⚡ 1-Click Quick Presets (Click to Auto-Fill Timings & Holiday Rules)
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {/* 1. Morning Check-In Only (Checkout Pending) */}
+                <button
+                  type="button"
+                  onClick={() => applyPreset('morning_login')}
+                  className="p-2 text-left bg-amber-50 hover:bg-amber-100 border-2 border-amber-300 rounded-xl transition-all shadow-2xs hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <span className="text-[11px] font-black text-amber-950 block flex items-center space-x-1">
+                    <Sun className="w-3.5 h-3.5 text-amber-600" />
+                    <span>☀️ Morning Login</span>
+                  </span>
+                  <span className="text-[10px] text-amber-800 font-mono">09:30 AM → ⏳ Pending</span>
+                </button>
+
+                {/* 2. Evening Check-Out (Complete Shift) */}
+                <button
+                  type="button"
+                  onClick={() => applyPreset('evening_logout')}
+                  className="p-2 text-left bg-orange-50 hover:bg-orange-100 border-2 border-orange-300 rounded-xl transition-all shadow-2xs hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <span className="text-[11px] font-black text-orange-950 block flex items-center space-x-1">
+                    <Moon className="w-3.5 h-3.5 text-orange-600" />
+                    <span>🌙 Evening Logout</span>
+                  </span>
+                  <span className="text-[10px] text-orange-800 font-mono">Complete Shift</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => applyPreset('on_time')}
@@ -1178,30 +1372,41 @@ export default function ManualAttendanceUpdate() {
                 {/* Clock In / Login */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      Check-in Time
+                    <label className="text-xs font-bold text-slate-700 flex items-center space-x-1">
+                      <Sun className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Check-in (Login) Time</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (clockIn === 'OD') {
-                          setClockIn('09:30:00');
-                          if (status === 'login_od' || (status === 'od' && clockOut !== 'OD')) setStatus('present');
-                        } else {
-                          setClockIn('OD');
-                          if (clockOut === 'OD') setStatus('od');
-                          else setStatus('login_od');
-                        }
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                        clockIn === 'OD'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                      }`}
-                      title="Click to toggle Login On Duty (OD)"
-                    >
-                      {clockIn === 'OD' ? '✓ Login OD' : '+ Login OD'}
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => setClockIn(getCurrentTime24())}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                        title="Set current IST time as Check-in"
+                      >
+                        ⏱ Now
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (clockIn === 'OD') {
+                            setClockIn('09:30:00');
+                            if (status === 'login_od' || (status === 'od' && clockOut !== 'OD')) setStatus('present');
+                          } else {
+                            setClockIn('OD');
+                            if (clockOut === 'OD') setStatus('od');
+                            else setStatus('login_od');
+                          }
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                          clockIn === 'OD'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                        }`}
+                        title="Click to toggle Login On Duty (OD)"
+                      >
+                        {clockIn === 'OD' ? '✓ Login OD' : '+ Login OD'}
+                      </button>
+                    </div>
                   </div>
 
                   {clockIn === 'OD' ? (
@@ -1229,40 +1434,71 @@ export default function ManualAttendanceUpdate() {
                     />
                   )}
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    {clockIn === 'OD' ? 'Morning Official On Duty' : 'Standard Shift: 09:30:00'}
+                    {clockIn === 'OD' ? 'Morning Official On Duty' : 'Standard Shift Login: 09:30:00'}
                   </span>
                 </div>
 
                 {/* Clock Out / Logout */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      Check-out Time
+                    <label className="text-xs font-bold text-slate-700 flex items-center space-x-1">
+                      <Moon className="w-3.5 h-3.5 text-orange-600" />
+                      <span>Check-out (Logout) Time</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (clockOut === 'OD') {
-                          setClockOut('18:00:00');
-                          if (status === 'logout_od' || (status === 'od' && clockIn !== 'OD')) setStatus('present');
-                        } else {
-                          setClockOut('OD');
-                          if (clockIn === 'OD') setStatus('od');
-                          else setStatus('logout_od');
-                        }
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                        clockOut === 'OD'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
-                      }`}
-                      title="Click to toggle Logout On Duty (OD)"
-                    >
-                      {clockOut === 'OD' ? '✓ Logout OD' : '+ Logout OD'}
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLeaveCheckoutPending(false);
+                          setClockOut(getCurrentTime24());
+                        }}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                        title="Set current IST time as Check-out"
+                      >
+                        ⏱ Now
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (clockOut === 'OD') {
+                            setClockOut('18:00:00');
+                            if (status === 'logout_od' || (status === 'od' && clockIn !== 'OD')) setStatus('present');
+                          } else {
+                            setClockOut('OD');
+                            if (clockIn === 'OD') setStatus('od');
+                            else setStatus('logout_od');
+                          }
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                          clockOut === 'OD'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                        }`}
+                        title="Click to toggle Logout On Duty (OD)"
+                      >
+                        {clockOut === 'OD' ? '✓ Logout OD' : '+ Logout OD'}
+                      </button>
+                    </div>
                   </div>
 
-                  {clockOut === 'OD' ? (
+                  {leaveCheckoutPending ? (
+                    <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 font-bold text-xs">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span>⏳ Checkout Pending (Morning Login Only)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLeaveCheckoutPending(false);
+                          setClockOut(getCurrentTime24() || '18:00:00');
+                        }}
+                        className="text-[10px] text-amber-800 hover:underline font-bold"
+                      >
+                        Set Logout Now
+                      </button>
+                    </div>
+                  ) : clockOut === 'OD' ? (
                     <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 font-bold text-xs">
                       <span className="flex items-center space-x-1.5">
                         <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
@@ -1280,15 +1516,38 @@ export default function ManualAttendanceUpdate() {
                     <input
                       type="time"
                       step="1"
-                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave'}
+                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave' || leaveCheckoutPending}
                       value={clockOut}
-                      onChange={(e) => setClockOut(e.target.value)}
+                      onChange={(e) => {
+                        setClockOut(e.target.value);
+                        if (e.target.value) setLeaveCheckoutPending(false);
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
                     />
                   )}
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    {clockOut === 'OD' ? 'Evening Official On Duty' : 'Standard Exit: 18:00:00'}
-                  </span>
+
+                  {/* Toggle: Leave checkout pending (Save morning check-in only) */}
+                  <div className="mt-1 flex items-center justify-between">
+                    <label className="inline-flex items-center space-x-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={leaveCheckoutPending}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setLeaveCheckoutPending(val);
+                          if (val) {
+                            setClockOut('');
+                          } else {
+                            setClockOut(getCurrentTime24() || '18:00:00');
+                          }
+                        }}
+                        className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-700">
+                        Leave checkout pending (Morning check-in only)
+                      </span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1476,12 +1735,28 @@ export default function ManualAttendanceUpdate() {
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 py-3 bg-[#8b0000] hover:bg-[#7b0000] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                className={`flex-1 py-3 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 ${
+                  leaveCheckoutPending
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800'
+                    : isExistingCheckoutPending && clockOut && clockOut !== '--'
+                    ? 'bg-gradient-to-r from-orange-600 to-[#8b0000] hover:from-orange-700 hover:to-[#7b0000]'
+                    : 'bg-[#8b0000] hover:bg-[#7b0000]'
+                }`}
               >
                 {saving ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Saving Attendance...</span>
+                  </>
+                ) : leaveCheckoutPending ? (
+                  <>
+                    <Sun className="w-4 h-4 text-amber-200" />
+                    <span>☀️ Save Morning Check-In (Checkout Pending)</span>
+                  </>
+                ) : isExistingCheckoutPending && clockOut && clockOut !== '--' ? (
+                  <>
+                    <Moon className="w-4 h-4 text-orange-200" />
+                    <span>🌙 Save Evening Check-Out & Complete Shift</span>
                   </>
                 ) : (
                   <>
@@ -1549,6 +1824,7 @@ export default function ManualAttendanceUpdate() {
                   const isLate = item.status === 'late';
                   const isHalfDay = item.status === 'half_day';
                   const isAbsent = item.status === 'absent';
+                  const isPendingCheckout = (!item.clock_out || item.clock_out === '--' || item.clock_out === '' || item.status === 'checked_in') && item.status !== 'absent' && item.status !== 'weekly_off' && item.holiday_type !== 'own_leave' && item.holiday_type !== 'govt_holiday_leave';
                   const hasOt = item.ot_minutes > 0 || item.ot_hours > 0;
                   const otMins = item.ot_minutes || Math.round((item.ot_hours || 0) * 60);
 
@@ -1584,10 +1860,12 @@ export default function ManualAttendanceUpdate() {
                           <span className="text-[10px] text-slate-400 uppercase font-semibold">Logout:</span>
                           {item.clock_out === 'OD' ? (
                             <span className="px-1.5 py-0.2 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">OD</span>
-                          ) : item.clock_out ? (
+                          ) : (item.clock_out && item.clock_out !== '--') ? (
                             <span className="font-semibold text-slate-800">{formatTime(item.clock_out)}</span>
                           ) : (
-                            <span className="italic text-slate-400">In progress</span>
+                            <span className="px-1.5 py-0.2 rounded font-black bg-amber-100 text-amber-900 text-[10px] border border-amber-300 animate-pulse">
+                              ⏳ Checkout Pending
+                            </span>
                           )}
                         </div>
 
@@ -1609,7 +1887,12 @@ export default function ManualAttendanceUpdate() {
                             </span>
                           )}
 
-                          {item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
+                          {isPendingCheckout ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 flex items-center space-x-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse"></span>
+                              <span>⏳ Checkout Pending</span>
+                            </span>
+                          ) : item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                               {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
                             </span>
@@ -1646,6 +1929,18 @@ export default function ManualAttendanceUpdate() {
                         </div>
 
                         <div className="flex items-center space-x-1">
+                          {isPendingCheckout && (
+                            <button
+                              type="button"
+                              onClick={() => handleEnterLogout(item)}
+                              className="px-2 py-1 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-lg font-bold text-[10px] flex items-center space-x-1 shadow-2xs transition-all active:scale-95"
+                              title="Enter evening logout for this employee"
+                            >
+                              <Moon className="w-3 h-3 text-amber-100" />
+                              <span>🌙 Log Out</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleEditRecord(item)}

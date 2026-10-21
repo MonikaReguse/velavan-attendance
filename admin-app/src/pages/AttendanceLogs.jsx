@@ -366,7 +366,8 @@ export default function AttendanceLogs() {
                   const lateMins = getLateMinutes(log.clock_in);
                   const isHalfDay = log.status === 'half_day';
                   const isAbsent = log.status === 'absent';
-                  const isOngoing = !log.clock_out || log.clock_out === log.clock_in;
+                  const isPendingCheckout = (!log.clock_out || log.clock_out === '--' || log.clock_out === '' || log.status === 'checked_in') && log.status !== 'absent' && log.status !== 'weekly_off' && log.holiday_type !== 'own_leave' && log.holiday_type !== 'govt_holiday_leave';
+                  const isOngoing = isPendingCheckout || (!log.clock_out || log.clock_out === log.clock_in);
 
                   return (
                     <tr key={log.id} className="hover:bg-slate-50 transition-colors">
@@ -415,20 +416,20 @@ export default function AttendanceLogs() {
                           <span className="px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-800 text-[10px] border border-indigo-200">
                             OD (On Duty)
                           </span>
-                        ) : !isOngoing ? (
+                        ) : (log.clock_out && log.clock_out !== '--' && !isPendingCheckout) ? (
                           formatTime(log.clock_out)
                         ) : (
-                          <span className="inline-flex items-center text-emerald-600 font-medium italic">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-                            In progress...
+                          <span className="inline-flex items-center text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mr-1.5"></span>
+                            Checkout Pending
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-800">
                         {log.total_hours > 0 ? (
                           `${log.total_hours}h`
-                        ) : isOngoing ? (
-                          <span className="text-slate-400 font-normal italic">Active</span>
+                        ) : isPendingCheckout ? (
+                          <span className="text-amber-600 font-bold text-xs italic">Shift Active</span>
                         ) : (
                           '0h'
                         )}
@@ -439,7 +440,11 @@ export default function AttendanceLogs() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {log.status === 'od' || log.status === 'login_od' || log.status === 'logout_od' || log.clock_in === 'OD' || log.clock_out === 'OD' ? (
+                        {isPendingCheckout ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                            Checked In — Checkout Pending
+                          </span>
+                        ) : log.status === 'od' || log.status === 'login_od' || log.status === 'logout_od' || log.clock_in === 'OD' || log.clock_out === 'OD' ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                             {log.status === 'login_od' ? 'Login OD' : log.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
                           </span>

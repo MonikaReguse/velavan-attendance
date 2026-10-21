@@ -123,11 +123,14 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
       inDisplay = `${formatTime(r.clock_in)}\n(Late +${lateMins > 0 ? lateMins : 1}m)`;
     }
 
-    const outDisplay = r.clock_out ? formatTime(r.clock_out) : '--';
+    const isPendingCheckout = (!r.clock_out || r.clock_out === '--' || r.status === 'checked_in') && r.status !== 'absent' && r.status !== 'weekly_off' && r.holiday_type !== 'own_leave' && r.holiday_type !== 'govt_holiday_leave';
+    const outDisplay = (r.clock_out && r.clock_out !== '--') ? formatTime(r.clock_out) : isPendingCheckout ? 'Pending' : '--';
 
     let statusText = 'PRESENT\n(On-Time)';
     const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
-    if (isOD) {
+    if (isPendingCheckout) {
+      statusText = 'CHECKED IN\n(Checkout Pending)';
+    } else if (isOD) {
       statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
     } else if (r.status === 'absent') {
       statusText = 'ABSENT';
@@ -1032,11 +1035,14 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     if (isLate && r.clock_in && r.clock_in !== '--') {
       inDisplay = `${formatTime(r.clock_in)}\n(Late +${lateMins > 0 ? lateMins : 1}m)`;
     }
-    const outDisplay = r.clock_out ? formatTime(r.clock_out) : '--';
+    const isPendingCheckout = (!r.clock_out || r.clock_out === '--' || r.status === 'checked_in') && r.status !== 'absent' && r.status !== 'weekly_off' && r.holiday_type !== 'own_leave' && r.holiday_type !== 'govt_holiday_leave';
+    const outDisplay = (r.clock_out && r.clock_out !== '--') ? formatTime(r.clock_out) : isPendingCheckout ? 'Pending' : '--';
 
     let statusText = 'PRESENT\n(On-Time)';
     const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
-    if (isOD) {
+    if (isPendingCheckout) {
+      statusText = 'CHECKED IN\n(Checkout Pending)';
+    } else if (isOD) {
       statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
     } else if (r.status === 'absent') {
       statusText = 'ABSENT';

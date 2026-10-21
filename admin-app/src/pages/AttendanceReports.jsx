@@ -303,7 +303,7 @@ export default function AttendanceReports() {
           } else if (isLate) {
             normalPresent += 1;
             late += 1;
-          } else if (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) {
+          } else if (r.status === 'present' || r.status === 'checked_in' || (!r.status && r.clock_in && r.clock_in !== '--')) {
             normalPresent += 1;
           } else if (r.status === 'absent') {
             otherAbsent += 1;

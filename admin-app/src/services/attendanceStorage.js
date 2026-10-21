@@ -43,6 +43,9 @@ export const getLocalAttendance = () => {
           if (existing.clock_out && existing.clock_out !== '--' && (!item.clock_out || item.clock_out === '--')) {
             merged.clock_out = existing.clock_out;
           }
+          if (existing.clock_in && existing.clock_in !== '--' && (!item.clock_in || item.clock_in === '--')) {
+            merged.clock_in = existing.clock_in;
+          }
           if (existing.total_hours && (!item.total_hours || item.total_hours === 0)) {
             merged.total_hours = existing.total_hours;
           }
@@ -162,6 +165,20 @@ export const savePunchLocally = (punch) => {
     }
   } catch {}
 
+  // Helper to merge punch into an existing record in array
+  const mergeIntoRecord = (prev, next) => {
+    const merged = { ...prev, ...next };
+    if (!merged.punch_photo && prev.punch_photo) merged.punch_photo = prev.punch_photo;
+    if (prev.method === 'facelock' && (!next.method || next.method === 'manual')) merged.method = 'facelock';
+    if ((!next.clock_in || next.clock_in === '--') && prev.clock_in && prev.clock_in !== '--') {
+      merged.clock_in = prev.clock_in;
+    }
+    if ((!next.clock_out || next.clock_out === '--') && prev.clock_out && prev.clock_out !== '--' && !next.leave_checkout_pending) {
+      merged.clock_out = prev.clock_out;
+    }
+    return merged;
+  };
+
   // 1. Update master backup
   try {
     const bStr = localStorage.getItem('velavan_master_database_backup');
@@ -169,7 +186,7 @@ export const savePunchLocally = (punch) => {
     if (!Array.isArray(b.attendance)) b.attendance = [];
     const idx = b.attendance.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      b.attendance[idx] = { ...punch };
+      b.attendance[idx] = mergeIntoRecord(b.attendance[idx], punch);
     } else {
       b.attendance.unshift(punch);
     }
@@ -182,7 +199,7 @@ export const savePunchLocally = (punch) => {
     const logs = lStr ? JSON.parse(lStr) : [];
     const idx = logs.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      logs[idx] = { ...punch };
+      logs[idx] = mergeIntoRecord(logs[idx], punch);
     } else {
       logs.unshift(punch);
     }
@@ -197,7 +214,7 @@ export const savePunchLocally = (punch) => {
       const todayList = tStr ? JSON.parse(tStr) : [];
       const idx = todayList.findIndex(a => `${a.emp_id}_${a.date}` === key);
       if (idx !== -1) {
-        todayList[idx] = { ...punch };
+        todayList[idx] = mergeIntoRecord(todayList[idx], punch);
       } else {
         todayList.unshift(punch);
       }
@@ -211,7 +228,7 @@ export const savePunchLocally = (punch) => {
     const rList = rStr ? JSON.parse(rStr) : [];
     const idx = rList.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      rList[idx] = { ...punch };
+      rList[idx] = mergeIntoRecord(rList[idx], punch);
     } else {
       rList.unshift(punch);
     }
@@ -293,6 +310,9 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
       }
       if ((!mergedRec.clock_out || mergedRec.clock_out === '--') && existing.clock_out && existing.clock_out !== '--') {
         mergedRec.clock_out = existing.clock_out;
+      }
+      if ((!mergedRec.clock_in || mergedRec.clock_in === '--') && existing.clock_in && existing.clock_in !== '--') {
+        mergedRec.clock_in = existing.clock_in;
       }
       map.set(key, mergedRec);
     }
