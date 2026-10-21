@@ -13,13 +13,6 @@ import Login from './pages/Login';
 function MainApp() {
   const { activeEmployee, isAuthenticated, logout, loading } = useApp();
 
-  useEffect(() => {
-    // Keep alive and check settings
-    api.getSettings().then(s => {
-      if (s?.office_name) setOfficeName(s.office_name);
-    }).catch(() => {});
-  }, []);
-
   // If loading session
   if (loading) {
     return (
