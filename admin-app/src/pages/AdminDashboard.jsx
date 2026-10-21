@@ -14,7 +14,7 @@ import {
 import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
-import { getLocalAttendance, mergeAttendanceWithLocal } from '../services/attendanceStorage';
+import { getLocalAttendance, mergeAttendanceWithLocal, syncLocalRecordsToServer } from '../services/attendanceStorage';
 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(() => {
@@ -72,34 +72,38 @@ export default function AdminDashboard({ setActiveTab }) {
         const serverKeys = new Set(attRes.map(a => a.emp_id));
         const unsavedLocal = localList.filter(l => !serverKeys.has(l.emp_id));
         todayList = [...attRes, ...unsavedLocal];
+        if (unsavedLocal.length > 0) {
+          syncLocalRecordsToServer(unsavedLocal).catch(() => {});
+        }
       } else {
         const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
         todayList = merged.filter(a => a.date === currentDay);
+        if (todayList.length > 0) {
+          syncLocalRecordsToServer(todayList).catch(() => {});
+        }
       }
       setTodayAttendance(todayList);
 
       const totalEmp = (empRes && empRes.length > 0) ? empRes.length : (employees.length || 9);
-      const presentToday = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
-      const explicitAbsentToday = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
-      const lateToday = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
-      const unaccountedToday = Math.max(0, totalEmp - presentToday - explicitAbsentToday);
-      const absentToday = explicitAbsentToday + unaccountedToday;
+      const presentFromList = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
+      const explicitAbsentFromList = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
+      const lateFromList = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
+
+      // Authoritative count matches the visible roster on the dashboard
+      const presentToday = Math.max(presentFromList, Number(sumRes?.present_today || 0));
+      const explicitAbsent = Math.max(explicitAbsentFromList, Number(sumRes?.explicit_absent_today || 0));
+      const lateToday = Math.max(lateFromList, Number(sumRes?.late_today || 0));
+      const unaccounted = Math.max(0, totalEmp - presentToday - explicitAbsent);
+      const absentToday = explicitAbsent + unaccounted;
 
       const calculatedSummary = {
         total_employees: totalEmp,
-        present_today: typeof sumRes?.present_today === 'number' ? sumRes.present_today : presentToday,
-        late_today: typeof sumRes?.late_today === 'number' ? sumRes.late_today : lateToday,
-        absent_today: typeof sumRes?.absent_today === 'number' ? sumRes.absent_today : absentToday,
-        explicit_absent_today: typeof sumRes?.explicit_absent_today === 'number' ? sumRes.explicit_absent_today : explicitAbsentToday,
-        ...(sumRes || {})
+        present_today: presentToday,
+        late_today: lateToday,
+        absent_today: absentToday,
+        explicit_absent_today: explicitAbsent,
+        unaccounted_today: unaccounted
       };
-      if (typeof sumRes?.present_today === 'number') {
-        calculatedSummary.present_today = sumRes.present_today;
-        calculatedSummary.absent_today = sumRes.absent_today;
-      } else {
-        calculatedSummary.present_today = presentToday;
-        calculatedSummary.absent_today = absentToday;
-      }
 
       setSummary(calculatedSummary);
       try { localStorage.setItem('velavan_dashboard_summary', JSON.stringify(calculatedSummary)); } catch {}

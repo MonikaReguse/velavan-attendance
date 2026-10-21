@@ -285,7 +285,8 @@ export const syncLocalRecordsToServer = async (recordsToSync) => {
           clock_out: rec.clock_out,
           status: rec.status,
           notes: rec.notes || 'Restored from local persistent storage',
-          ot_minutes: rec.ot_minutes || 0
+          ot_minutes: rec.ot_minutes || 0,
+          holiday_type: rec.holiday_type || 'normal'
         });
       } catch (err) {
         console.warn(`[Sync] Failed to push local attendance for ${rec.emp_id} on ${rec.date}:`, err.message);

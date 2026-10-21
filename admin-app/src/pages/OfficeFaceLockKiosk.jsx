@@ -147,25 +147,22 @@ export default function OfficeFaceLockKiosk() {
       const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       const todayOnly = merged.filter(p => p.date === todayStr);
       setTodayPunches(todayOnly);
-      if (sum && typeof sum.present_today === 'number') {
-        setSummary({
-          total_employees: sum.total_employees || 9,
-          present: sum.present_today,
-          late: sum.late_today,
-          absent: sum.absent_today
-        });
-      } else {
-        const presentList = todayOnly.filter(p => p.status !== 'absent' && p.status !== 'weekly_off' && p.holiday_type !== 'own_leave');
-        const explicitAbsent = todayOnly.filter(p => p.status === 'absent' || p.holiday_type === 'own_leave').length;
-        const totalEmp = 9;
-        const unaccounted = Math.max(0, totalEmp - presentList.length - explicitAbsent);
-        setSummary(prev => ({
-          ...prev,
-          present: presentList.length,
-          late: presentList.filter(p => p.is_late || p.status === 'late').length,
-          absent: explicitAbsent + unaccounted
-        }));
-      }
+      const presentFromList = todayOnly.filter(p => p.status !== 'absent' && p.status !== 'weekly_off' && p.holiday_type !== 'own_leave').length;
+      const explicitAbsent = todayOnly.filter(p => p.status === 'absent' || p.holiday_type === 'own_leave').length;
+      const lateFromList = todayOnly.filter(p => (p.is_late || p.status === 'late') && p.status !== 'absent').length;
+      const totalEmp = sum?.total_employees || 9;
+
+      const presentCount = Math.max(presentFromList, Number(sum?.present_today || 0));
+      const lateCount = Math.max(lateFromList, Number(sum?.late_today || 0));
+      const unaccounted = Math.max(0, totalEmp - presentCount - explicitAbsent);
+      const absentCount = explicitAbsent + unaccounted;
+
+      setSummary({
+        total_employees: totalEmp,
+        present: presentCount,
+        late: lateCount,
+        absent: absentCount
+      });
     } catch (err) {
       console.error('Error fetching kiosk attendance data:', err);
     }
