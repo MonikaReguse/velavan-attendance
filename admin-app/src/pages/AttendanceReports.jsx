@@ -267,6 +267,39 @@ export default function AttendanceReports() {
 
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
+      
+      // Deduplicate records by date so each date is counted at most once
+      const dateMap = new Map();
+      records.forEach(r => {
+        if (!r.date) return;
+        const existing = dateMap.get(r.date);
+        if (!existing) {
+          dateMap.set(r.date, r);
+        } else {
+          // Merge punch details on the same date
+          const hasOutExisting = existing.clock_out && existing.clock_out !== '--' && existing.clock_out !== '';
+          const hasOutR = r.clock_out && r.clock_out !== '--' && r.clock_out !== '';
+          const isExistingAbsent = existing.status === 'absent' || existing.holiday_type === 'own_leave';
+          const isRAbsent = r.status === 'absent' || r.holiday_type === 'own_leave';
+
+          let base = existing;
+          if (isExistingAbsent && !isRAbsent) {
+            base = r;
+          } else if (!hasOutExisting && hasOutR) {
+            base = r;
+          }
+
+          dateMap.set(r.date, {
+            ...base,
+            clock_in: existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : r.clock_in,
+            clock_out: hasOutExisting ? existing.clock_out : (hasOutR ? r.clock_out : '--'),
+            ot_minutes: Math.max(Number(existing.ot_minutes || 0), Number(r.ot_minutes || 0)),
+            total_hours: Math.max(Number(existing.total_hours || 0), Number(r.total_hours || 0))
+          });
+        }
+      });
+      const uniqueRecords = Array.from(dateMap.values());
+
       let normalPresent = 0;
       let govtHolidayWorked = 0;
       let govtHolidayGranted = 0;
@@ -277,7 +310,7 @@ export default function AttendanceReports() {
       let late = 0;
       let otMinutes = 0;
 
-      records.forEach(r => {
+      uniqueRecords.forEach(r => {
         const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
         const isGovtLeave = r.holiday_type === 'govt_holiday_leave' || r.status === 'holiday';
         const isOwnLeave = r.holiday_type === 'own_leave';
@@ -292,7 +325,6 @@ export default function AttendanceReports() {
           // Normal Working Day
           const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
           const isLeave = r.status === 'leave' || r.status === 'paid_leave';
-          const isLate = !isOD && isLateArrival(r.clock_in, r.status);
           
           if (isLeave) {
             paidLeaveDays += 1;
@@ -300,10 +332,7 @@ export default function AttendanceReports() {
           } else if (isOD) {
             paidLeaveDays += 1;
             normalPresent += 1;
-          } else if (isLate) {
-            normalPresent += 1;
-            late += 1;
-          } else if (r.status === 'present' || r.status === 'checked_in' || (!r.status && r.clock_in && r.clock_in !== '--')) {
+          } else if (r.status === 'present' || r.status === 'checked_in' || r.status === 'late' || r.is_late || (!r.status && r.clock_in && r.clock_in !== '--')) {
             normalPresent += 1;
           } else if (r.status === 'absent') {
             otherAbsent += 1;
@@ -312,7 +341,7 @@ export default function AttendanceReports() {
           }
         }
 
-        if (r.ot_minutes > 0) otMinutes += r.ot_minutes;
+        if (r.ot_minutes > 0) otMinutes += Number(r.ot_minutes);
       });
 
       const totalPresent = normalPresent + govtHolidayWorked + govtHolidayGranted;
@@ -344,7 +373,8 @@ export default function AttendanceReports() {
       const doubleSalaryDays = govtHolidayWorked + fullPresentBonusDays;
       const holidayExtraSalary = Math.round(govtHolidayWorked * dailyRate) + fullPresentBonus;
 
-      const otherAllowances = 0;
+      const otherAllowances = Number(emp.allowance || 0);
+      const govtHolidaySalary = Math.round(govtHolidayGranted * dailyRate);
       const totalMonthlySalary = baseSalary + otPay + holidayExtraSalary + otherAllowances;
       
       // Final Payable Salary: Normal Salary + Holiday Extra Salary + OT + Allowances
@@ -365,6 +395,7 @@ export default function AttendanceReports() {
         govtHolidayWorked,
         govtHolidayGranted,
         ownLeaveDays,
+        unpaidLeaveDays: ownLeaveDays,
         absent: totalAbsent,
         otherAbsent,
         late,
@@ -374,10 +405,14 @@ export default function AttendanceReports() {
         otMinutes,
         otHours,
         otPay,
+        otAmount: otPay,
+        govtHolidaySalary,
         doubleSalaryDays,
         holidayExtraSalary,
+        doubleSalaryExtraAmount: holidayExtraSalary,
         doubleSalaryAmount: holidayExtraSalary,
         unpaidLeaveDeductions,
+        otherAllowances,
         otherDeductions,
         deductions: totalDeductions,
         normalSalary,
@@ -436,10 +471,10 @@ export default function AttendanceReports() {
           <button
             onClick={handleDownloadPayrollPDF}
             className="flex items-center space-x-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition-colors"
-            title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
+            title="Download Complete 20-Column Monthly Employee Attendance and Salary Report in PDF Format"
           >
             <FileText className="w-4 h-4 text-amber-200" />
-            <span>Payroll PDF</span>
+            <span>Monthly Salary PDF (20 Cols)</span>
           </button>
 
           <button
@@ -620,10 +655,10 @@ export default function AttendanceReports() {
             <button
               onClick={handleDownloadPayrollPDF}
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors"
-              title="Download Monthly Payroll & +2 Days Bonus in PDF Format"
+              title="Download Complete 20-Column Monthly Attendance & Salary Report in PDF Format"
             >
               <FileDown className="w-3.5 h-3.5" />
-              <span>Payroll PDF</span>
+              <span>Download Salary PDF</span>
             </button>
 
             <span className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded-xl font-bold text-xs border border-amber-300 flex items-center space-x-1.5">

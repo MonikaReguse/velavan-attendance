@@ -1,15 +1,15 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatTime, isLateArrival, getLateMinutes } from './timeUtils';
+import { formatTime } from './timeUtils';
 
-// Format currency in Indian Rupees format (₹)
+// Format currency in Indian Rupees format (₹ / Rs.)
 const formatINR = (val) => {
   const num = Number(val) || 0;
   return 'Rs. ' + num.toLocaleString('en-IN');
 };
 
 /**
- * Export Attendance Logs as an official PDF report with highlighted Late Arrivals & Metrics
+ * Export Attendance Logs as an official PDF report (without late arrival warnings or penalties)
  */
 export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Administrator' }) => {
   const doc = new jsPDF({
@@ -34,12 +34,12 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(254, 240, 138); // Yellow accent
-  doc.text('OFFICIAL MONTHLY ATTENDANCE AUDIT & PUNCTUALITY REPORT', 14, 18);
+  doc.text('OFFICIAL MONTHLY ATTENDANCE AUDIT REPORT', 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(241, 245, 249);
-  doc.text('Office Shift: 09:30 AM - 06:00 PM  |  Grace Period: 10 mins (Late Arrival after 09:40 AM)  |  OT Buffer: 20 mins', 14, 23);
+  doc.text('Office Shift: 09:30 AM - 06:00 PM  |  Overtime Buffer: 20 mins', 14, 23);
 
   // Metadata right-aligned
   const now = new Date();
@@ -68,13 +68,10 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
   const totalText = `Total Attendance Records: ${data.length}`;
   doc.text(`${periodText}   |   ${deptText}   |   ${totalText}`, 18, 35);
 
-  // Analytics Metrics (KPI Boxes)
-  const lateRecords = data.filter(r => isLateArrival(r.clock_in, r.status));
-  const lateCount = lateRecords.length;
-  const onTimeCount = data.filter(r => (r.status === 'present' || (!r.status && r.clock_in && r.clock_in !== '--')) && !isLateArrival(r.clock_in, r.status)).length;
-  const absentCount = data.filter(r => r.status === 'absent').length;
-  const totalWorked = onTimeCount + lateCount;
-  const punctualityRate = totalWorked > 0 ? Math.round((onTimeCount / totalWorked) * 100) : 100;
+  // Analytics Metrics (KPI Boxes - without late arrival metrics)
+  const presentRecords = data.filter(r => r.status !== 'absent' && r.holiday_type !== 'own_leave');
+  const presentCount = presentRecords.length;
+  const absentCount = data.filter(r => r.status === 'absent' || r.holiday_type === 'own_leave').length;
   const totalHours = data.reduce((sum, r) => sum + (Number(r.total_hours) || 0), 0);
   const totalOtMins = data.reduce((sum, r) => sum + (Number(r.ot_minutes) || 0), 0);
 
@@ -83,10 +80,10 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
   const boxH = 14;
 
   const boxes = [
-    { label: 'TOTAL SHIFTS RECORDED', val: `${data.length} Records`, sub: `${Math.round(totalHours)} hrs total worked`, color: [15, 23, 42], fill: [248, 250, 252] },
-    { label: 'ON-TIME ATTENDANCE', val: `${onTimeCount} Shifts`, sub: 'Punched <= 09:40 AM', color: [4, 120, 87], fill: [240, 253, 244] },
-    { label: 'LATE ARRIVALS', val: `⚠ ${lateCount} Late Days`, sub: lateCount > 0 ? 'Punched after 09:40 AM' : '100% Punctual', color: [180, 83, 9], fill: [254, 243, 199] },
-    { label: 'PUNCTUALITY RATE', val: `${punctualityRate}% On-Time`, sub: `${totalWorked} active shifts evaluated`, color: [2, 132, 199], fill: [240, 249, 255] }
+    { label: 'TOTAL SHIFTS RECORDED', val: `${data.length} Records`, sub: `${Math.round(totalHours)} hrs total logged`, color: [15, 23, 42], fill: [248, 250, 252] },
+    { label: 'PRESENT / ACTIVE SHIFTS', val: `${presentCount} Shifts`, sub: 'Punched & FaceLock verified', color: [4, 120, 87], fill: [240, 253, 244] },
+    { label: 'ABSENT / UNPAID DAYS', val: `${absentCount} Days`, sub: absentCount > 0 ? 'Loss of Pay marked' : '0 Absences', color: [225, 29, 72], fill: [254, 242, 242] },
+    { label: 'TOTAL OVERTIME LOGGED', val: `${(totalOtMins / 60).toFixed(1)} hrs`, sub: `${totalOtMins} mins beyond shift`, color: [180, 83, 9], fill: [254, 243, 199] }
   ];
 
   boxes.forEach((b, i) => {
@@ -111,35 +108,36 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
     doc.text(b.sub, x + 3, boxY + 13);
   });
 
-  // Prepare table data with Late markings
+  // Prepare table data with clean actual login times without late arrival warnings
   const tableRows = data.map((r, idx) => {
     const hours = (r.total_hours !== undefined && r.total_hours !== null && r.total_hours > 0) ? Number(r.total_hours).toFixed(1) + ' hrs' : '--';
     const otMins = r.ot_minutes ? `${r.ot_minutes}m` : '--';
-    const isLate = isLateArrival(r.clock_in, r.status);
-    const lateMins = getLateMinutes(r.clock_in);
 
-    let inDisplay = r.clock_in ? formatTime(r.clock_in) : '--';
-    if (isLate && r.clock_in && r.clock_in !== '--') {
-      inDisplay = `${formatTime(r.clock_in)}\n(Late +${lateMins > 0 ? lateMins : 1}m)`;
-    }
-
+    const inDisplay = r.clock_in ? formatTime(r.clock_in) : '--';
     const isPendingCheckout = (!r.clock_out || r.clock_out === '--' || r.status === 'checked_in') && r.status !== 'absent' && r.status !== 'weekly_off' && r.holiday_type !== 'own_leave' && r.holiday_type !== 'govt_holiday_leave';
     const outDisplay = (r.clock_out && r.clock_out !== '--') ? formatTime(r.clock_out) : isPendingCheckout ? 'Pending' : '--';
 
-    let statusText = 'PRESENT\n(On-Time)';
+    let statusText = 'PRESENT';
     const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+    const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
+    const isGovtLeave = r.holiday_type === 'govt_holiday_leave' || r.status === 'holiday';
+
     if (isPendingCheckout) {
-      statusText = 'CHECKED IN\n(Checkout Pending)';
+      statusText = 'IN PROGRESS\n(Checkout Pending)';
     } else if (isOD) {
       statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
-    } else if (r.status === 'absent') {
-      statusText = 'ABSENT';
+    } else if (r.status === 'absent' || r.holiday_type === 'own_leave') {
+      statusText = 'ABSENT\n(Loss of Pay)';
+    } else if (isGovtWorked) {
+      statusText = 'GOVT HOLIDAY\n(2× Pay)';
+    } else if (isGovtLeave) {
+      statusText = 'GOVT HOLIDAY\n(Office Granted)';
     } else if (r.status === 'weekly_off') {
       statusText = 'WEEKLY OFF';
     } else if (r.status === 'half_day') {
       statusText = 'HALF-DAY';
-    } else if (isLate) {
-      statusText = `⚠ LATE ARRIVAL\n(+${lateMins > 0 ? lateMins : 1}m late)`;
+    } else {
+      statusText = 'PRESENT\n(On-Time)';
     }
 
     const method = (r.method || 'facelock').toUpperCase();
@@ -163,14 +161,14 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
   tableRows.push([
     '',
     'TOTAL',
-    `${data.length} Shifts`,
+    `${data.length} Records`,
     '',
     '',
-    `${lateCount} Late Arrivals`,
+    '',
     '',
     `${Math.round(totalHours)} hrs`,
     `${totalOtMins}m`,
-    `${onTimeCount} On-Time | ${lateCount} Late`,
+    `${presentCount} Present | ${absentCount} Absent`,
     ''
   ]);
 
@@ -186,7 +184,7 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
       'Clock Out',
       'Hours',
       'OT',
-      'Status / Punctuality',
+      'Attendance Status',
       'Method'
     ]],
     body: tableRows,
@@ -205,37 +203,28 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
     },
     columnStyles: {
       0: { halign: 'center', cellWidth: 8 },
-      1: { halign: 'center', cellWidth: 20 },
-      2: { halign: 'center', cellWidth: 16, fontStyle: 'bold' },
-      3: { cellWidth: 40, fontStyle: 'bold' },
-      4: { cellWidth: 30 },
-      5: { halign: 'center', cellWidth: 26, fontStyle: 'bold' },
-      6: { halign: 'center', cellWidth: 22 },
-      7: { halign: 'center', cellWidth: 16 },
+      1: { halign: 'center', cellWidth: 22 },
+      2: { halign: 'center', cellWidth: 18, fontStyle: 'bold' },
+      3: { cellWidth: 42, fontStyle: 'bold' },
+      4: { cellWidth: 32 },
+      5: { halign: 'center', cellWidth: 26 },
+      6: { halign: 'center', cellWidth: 24 },
+      7: { halign: 'center', cellWidth: 18 },
       8: { halign: 'center', cellWidth: 16 },
       9: { halign: 'center', cellWidth: 40, fontStyle: 'bold' },
-      10: { halign: 'center', cellWidth: 20 }
+      10: { halign: 'center', cellWidth: 22 }
     },
     didParseCell: (data) => {
-      // Highlight Late Clock-In column
-      if (data.section === 'body' && data.column.index === 5 && data.row.index < tableRows.length - 1) {
-        const val = String(data.cell.raw);
-        if (val.includes('Late') || val.includes('+')) {
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
-          data.cell.styles.textColor = [180, 83, 9]; // amber-700
-          data.cell.styles.fontStyle = 'bold';
-        }
-      }
       // Highlight Status column
       if (data.section === 'body' && data.column.index === 9 && data.row.index < tableRows.length - 1) {
         const val = String(data.cell.raw).toUpperCase();
-        if (val.includes('LATE')) {
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
-          data.cell.styles.textColor = [180, 83, 9]; // amber-700
-          data.cell.styles.fontStyle = 'bold';
-        } else if (val.includes('ABSENT')) {
+        if (val.includes('ABSENT')) {
           data.cell.styles.fillColor = [254, 226, 226]; // rose-100
           data.cell.styles.textColor = [225, 29, 72]; // rose-600
+          data.cell.styles.fontStyle = 'bold';
+        } else if (val.includes('2×') || val.includes('GOVT')) {
+          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
+          data.cell.styles.textColor = [146, 64, 14]; // amber-800
           data.cell.styles.fontStyle = 'bold';
         } else if (val.includes('HALF-DAY')) {
           data.cell.styles.fillColor = [224, 242, 254]; // sky-100
@@ -253,9 +242,6 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
       if (data.section === 'body' && data.row.index === tableRows.length - 1) {
         data.cell.styles.fillColor = [241, 245, 249];
         data.cell.styles.fontStyle = 'bold';
-        if (data.column.index === 5 || data.column.index === 9) {
-          data.cell.styles.textColor = [180, 83, 9];
-        }
       }
     },
     margin: { left: 14, right: 14 },
@@ -271,92 +257,20 @@ export const exportAttendancePDF = ({ data = [], filters = {}, generatedBy = 'Ad
     }
   });
 
-  // Secondary Table: Detailed Itemized Late Arrival Audit Trail
-  if (lateRecords.length > 0) {
-    let nextY = doc.lastAutoTable.finalY + 8;
-    if (nextY > pageHeight - 45) {
-      doc.addPage();
-      nextY = 20;
-    }
-
-    doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(180, 83, 9);
-    doc.text('ITEMIZED LATE ARRIVAL AUDIT BREAKDOWN (Punched Past 09:40 AM Grace Period)', 14, nextY);
-
-    const lateTableRows = lateRecords.map((r, idx) => {
-      const lateMins = getLateMinutes(r.clock_in);
-      return [
-        idx + 1,
-        r.date || '--',
-        r.emp_id || '--',
-        r.employee_name || r.name || r.emp_id || '--',
-        r.department || 'Digital Marketing',
-        formatTime(r.clock_in),
-        '09:40 AM',
-        `+${lateMins > 0 ? lateMins : 1} mins`,
-        '⚠ LATE ARRIVAL',
-        r.notes || `Punched in past 09:40 AM (+${lateMins}m late)`
-      ];
-    });
-
-    autoTable(doc, {
-      startY: nextY + 3,
-      head: [[
-        '#',
-        'Date',
-        'Emp ID',
-        'Employee Name',
-        'Department',
-        'Actual In',
-        'Grace Cutoff',
-        'Late Duration',
-        'Punctuality Status',
-        'Audit Remarks'
-      ]],
-      body: lateTableRows,
-      theme: 'grid',
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        textColor: [30, 41, 59],
-        valign: 'middle'
-      },
-      headStyles: {
-        fillColor: [180, 83, 9], // amber-700
-        textColor: [255, 255, 255],
-        fontStyle: 'bold'
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 8 },
-        1: { halign: 'center', cellWidth: 22 },
-        2: { halign: 'center', cellWidth: 18, fontStyle: 'bold' },
-        3: { cellWidth: 42, fontStyle: 'bold' },
-        4: { cellWidth: 32 },
-        5: { halign: 'center', cellWidth: 22, fontStyle: 'bold' },
-        6: { halign: 'center', cellWidth: 22 },
-        7: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 83, 9] },
-        8: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
-        9: { cellWidth: 46 }
-      },
-      didParseCell: (data) => {
-        if (data.section === 'body' && (data.column.index === 5 || data.column.index === 7 || data.column.index === 8)) {
-          data.cell.styles.fillColor = [254, 243, 199];
-          data.cell.styles.textColor = [180, 83, 9];
-        }
-      },
-      margin: { left: 14, right: 14 }
-    });
-  }
-
   const fileDate = filters.startDate ? `${filters.startDate}_to_${filters.endDate || 'now'}` : new Date().toISOString().slice(0, 10);
   doc.save(`Velavan_Attendance_Report_${fileDate}.pdf`);
 };
 
 /**
- * Export Monthly Payroll & Full Attendance (+2 Days Extra Salary) as official PDF report
+ * Export Complete 20-Column Monthly Employee Attendance and Salary PDF Report
+ * with Full Executive Summary and 100% Late Arrival Removal
  */
-export const exportPayrollPDF = ({ payrollStats = [], attendanceData = [], filters = {}, generatedBy = 'Administrator' }) => {
+export const exportPayrollPDF = ({ 
+  payrollStats = [], 
+  attendanceData = [], 
+  filters = {}, 
+  generatedBy = 'Administrator' 
+}) => {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
@@ -386,8 +300,8 @@ export const exportPayrollPDF = ({ payrollStats = [], attendanceData = [], filte
     periodLabel = monthLabel;
   }
 
-  // Header background banner
-  doc.setFillColor(139, 0, 0); // Velavan Maroon (#8b0000)
+  // Header background banner (Velavan Maroon)
+  doc.setFillColor(139, 0, 0); // #8b0000
   doc.rect(0, 0, pageWidth, 26, 'F');
 
   // Company Brand
@@ -399,12 +313,12 @@ export const exportPayrollPDF = ({ payrollStats = [], attendanceData = [], filte
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(254, 240, 138); // Yellow accent
-  doc.text(`MONTHLY PAYROLL & FULL ATTENDANCE BONUS (+2 DAYS EXTRA SALARY) REPORT — ${monthLabel.toUpperCase()}`, 14, 16.5);
+  doc.text(`MONTHLY ATTENDANCE & SALARY REPORT — ${monthLabel.toUpperCase()}`, 14, 16.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(241, 245, 249);
-  doc.text(`Salary Month: ${monthLabel}   |   Pay Period: ${periodLabel}   |   Official Policy: 0 Absences = +2 Days Extra Salary Bonus + Overtime`, 14, 22.5);
+  doc.text(`Salary Month: ${monthLabel}   |   Pay Period: ${periodLabel}   |   Government Holiday Rules & Overtime Disbursal Policy`, 14, 22.5);
 
   // Metadata right-aligned
   const now = new Date();
@@ -420,24 +334,21 @@ export const exportPayrollPDF = ({ payrollStats = [], attendanceData = [], filte
   doc.text(`Generated: ${dateStr}`, pageWidth - 14, 15.5, { align: 'right' });
   doc.text(`Generated By: ${generatedBy}`, pageWidth - 14, 21.5, { align: 'right' });
 
-  // Summary Metrics Banner (KPI Boxes)
-  const totalPayroll = payrollStats.reduce((sum, p) => sum + (p.netTotalPayout || 0), 0);
-  const totalBonus = payrollStats.reduce((sum, p) => sum + (p.fullPresentBonus || 0), 0);
-  const totalQualified = payrollStats.filter(p => p.isFullPresentEligible).length;
-  const totalOt = payrollStats.reduce((sum, p) => sum + (p.otPay || 0), 0);
-  const totalLate = payrollStats.reduce((sum, p) => sum + (p.late || 0), 0);
-  const totalBaseSalary = payrollStats.reduce((sum, p) => sum + (p.baseSalary || 0), 0);
-  const totalEarnedBase = payrollStats.reduce((sum, p) => sum + (p.earnedBase || 0), 0);
+  // Summary Metrics Banner (KPI Boxes - without late arrivals)
+  const totalPayroll = payrollStats.reduce((sum, p) => sum + (Number(p.finalPayableSalary) || Number(p.netTotalPayout) || 0), 0);
+  const totalBaseSalary = payrollStats.reduce((sum, p) => sum + (Number(p.baseSalary) || 0), 0);
+  const totalHolidayExtra = payrollStats.reduce((sum, p) => sum + (Number(p.doubleSalaryExtraAmount) || Number(p.holidayExtraSalary) || 0), 0);
+  const totalOtDisbursed = payrollStats.reduce((sum, p) => sum + (Number(p.otAmount) || Number(p.otPay) || 0), 0);
 
   const boxWidth = (pageWidth - 28 - 9) / 4;
   const boxY = 30;
   const boxH = 14;
 
   const boxes = [
-    { label: `${monthLabel.toUpperCase()} TOTAL PAYROLL`, value: formatINR(totalPayroll), color: [15, 23, 42], fill: [248, 250, 252] },
-    { label: 'FULL PRESENT BONUSES (+2 DAYS)', value: `+${formatINR(totalBonus)} (${totalQualified} staff)`, color: [180, 83, 9], fill: [254, 243, 199] },
-    { label: 'TOTAL LATE OCCURRENCES', value: `${totalLate} Late Days Logged`, color: [180, 83, 9], fill: totalLate > 0 ? [254, 243, 199] : [248, 250, 252] },
-    { label: 'TOTAL OVERTIME DISBURSED', value: `+${formatINR(totalOt)}`, color: [139, 0, 0], fill: [248, 250, 252] }
+    { label: `${monthLabel.toUpperCase()} TOTAL PAYROLL`, value: formatINR(totalPayroll), color: [139, 0, 0], fill: [254, 242, 242] },
+    { label: 'TOTAL BASIC SALARY', value: formatINR(totalBaseSalary), color: [15, 23, 42], fill: [248, 250, 252] },
+    { label: 'GOVT HOLIDAY & 2× BONUSES', value: `+${formatINR(totalHolidayExtra)}`, color: [180, 83, 9], fill: [254, 243, 199] },
+    { label: 'TOTAL OVERTIME DISBURSED', value: `+${formatINR(totalOtDisbursed)}`, color: [4, 120, 87], fill: [240, 253, 244] }
   ];
 
   boxes.forEach((b, i) => {
@@ -450,234 +361,260 @@ export const exportPayrollPDF = ({ payrollStats = [], attendanceData = [], filte
     doc.setFontSize(6.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text(b.label, x + 3, boxY + 5);
+    doc.text(b.label, x + 3, boxY + 4.5);
 
     doc.setFontSize(10.5);
     doc.setTextColor(b.color[0], b.color[1], b.color[2]);
-    doc.text(b.value, x + 3, boxY + 11);
+    doc.text(b.value, x + 3, boxY + 10.5);
   });
 
-  // Prepare table data explicitly mentioning That Month's Earned Salary alongside Monthly Base Salary
+  // Prepare 20-Column Employee Attendance & Salary Statement Rows
   const tableRows = payrollStats.map((p, idx) => {
-    const bonusText = p.isFullPresentEligible
-      ? `YES (+${formatINR(p.fullPresentBonus)})`
-      : `Standard (${p.absent} Abs)`;
-
-    const earnedNote = p.absent > 0
-      ? `(-${formatINR(p.absent * p.dailyRate)} LOP)`
-      : `(100% Earned)`;
+    const baseSalary = Number(p.baseSalary || 0);
+    const dailyRate = Number(p.dailyRate || (baseSalary > 0 ? Math.round(baseSalary / 30) : 0));
+    const workingDays = Number(p.workingDays || 26);
+    const presentDays = Number(p.present !== undefined ? p.present : 0);
+    const absentDays = Number(p.absent !== undefined ? p.absent : 0);
+    const paidLeaveDays = Number(p.paidLeaveDays || 0);
+    const unpaidLeaveDays = Number(p.ownLeaveDays !== undefined ? p.ownLeaveDays : (p.unpaidLeaveDays || 0));
+    const govtHolidayGranted = Number(p.govtHolidayGranted || 0);
+    const govtHolidayWorked = Number(p.govtHolidayWorked || 0);
+    const doubleSalaryDays = Number(p.doubleSalaryDays !== undefined ? p.doubleSalaryDays : (govtHolidayWorked + (p.isFullPresentEligible ? 2 : 0)));
+    const otHours = Number(p.otHours || (p.otMinutes ? Number((p.otMinutes / 60).toFixed(1)) : 0));
+    const otAmount = Number(p.otAmount !== undefined ? p.otAmount : (p.otPay || 0));
+    const govtHolidaySalary = Number(p.govtHolidaySalary !== undefined ? p.govtHolidaySalary : Math.round(govtHolidayGranted * dailyRate));
+    const doubleSalaryExtraAmount = Number(p.doubleSalaryExtraAmount !== undefined ? p.doubleSalaryExtraAmount : (p.holidayExtraSalary || 0));
+    const unpaidLeaveDeductions = Number(p.unpaidLeaveDeductions !== undefined ? p.unpaidLeaveDeductions : Math.round(unpaidLeaveDays * dailyRate));
+    const otherAllowances = Number(p.otherAllowances || 0);
+    const otherDeductions = Number(p.otherDeductions !== undefined ? p.otherDeductions : 0);
+    const totalMonthlySalary = Number(p.totalMonthlySalary !== undefined ? p.totalMonthlySalary : (baseSalary + otAmount + doubleSalaryExtraAmount + otherAllowances));
+    const finalPayableSalary = Number(p.finalPayableSalary !== undefined ? p.finalPayableSalary : (p.netTotalPayout !== undefined ? p.netTotalPayout : 0));
 
     return [
       idx + 1,
       p.emp_id || '--',
       p.name || '--',
-      `${p.department || 'Digital Marketing'}\n(${p.role || 'Staff'})`,
-      `${formatINR(p.baseSalary)}\n(${formatINR(p.dailyRate)}/d)`,
-      `${formatINR(p.earnedBase)}\n${earnedNote}`,
-      `${p.present} Days`,
-      p.late > 0 ? `⚠ ${p.late} Late Days` : '0 On-Time',
-      `${p.absent} Abs`,
-      p.otPay > 0 ? `+${formatINR(p.otPay)}\n(${p.otMinutes}m)` : '0m',
-      bonusText,
-      `${formatINR(p.netTotalPayout)}\n(${monthLabel.split(' ')[0]} Payout)`
+      formatINR(baseSalary),
+      workingDays,
+      presentDays,
+      absentDays,
+      paidLeaveDays,
+      unpaidLeaveDays,
+      govtHolidayGranted,
+      govtHolidayWorked,
+      doubleSalaryDays,
+      `${otHours}h`,
+      formatINR(otAmount),
+      formatINR(govtHolidaySalary),
+      formatINR(doubleSalaryExtraAmount),
+      formatINR(unpaidLeaveDeductions),
+      formatINR(otherAllowances),
+      formatINR(otherDeductions),
+      formatINR(totalMonthlySalary),
+      formatINR(finalPayableSalary)
     ];
   });
 
-  // Summary Row at bottom
+  // Calculate Totals Across All 20 Columns
+  const sumBase = payrollStats.reduce((s, p) => s + (Number(p.baseSalary) || 0), 0);
+  const sumPresent = payrollStats.reduce((s, p) => s + (Number(p.present) || 0), 0);
+  const sumAbsent = payrollStats.reduce((s, p) => s + (Number(p.absent) || 0), 0);
+  const sumPaidLeave = payrollStats.reduce((s, p) => s + (Number(p.paidLeaveDays) || 0), 0);
+  const sumUnpaidLeave = payrollStats.reduce((s, p) => s + (Number(p.ownLeaveDays !== undefined ? p.ownLeaveDays : p.unpaidLeaveDays) || 0), 0);
+  const sumGovtGranted = payrollStats.reduce((s, p) => s + (Number(p.govtHolidayGranted) || 0), 0);
+  const sumGovtWorked = payrollStats.reduce((s, p) => s + (Number(p.govtHolidayWorked) || 0), 0);
+  const sumDoubleDays = payrollStats.reduce((s, p) => s + (Number(p.doubleSalaryDays) || 0), 0);
+  const sumOtHours = payrollStats.reduce((s, p) => s + (Number(p.otHours) || (p.otMinutes ? Number((p.otMinutes / 60).toFixed(1)) : 0)), 0);
+  const sumOtAmount = payrollStats.reduce((s, p) => s + (Number(p.otAmount !== undefined ? p.otAmount : p.otPay) || 0), 0);
+  const sumGovtSalary = payrollStats.reduce((s, p) => s + (Number(p.govtHolidaySalary) || 0), 0);
+  const sumDoubleExtra = payrollStats.reduce((s, p) => s + (Number(p.doubleSalaryExtraAmount !== undefined ? p.doubleSalaryExtraAmount : p.holidayExtraSalary) || 0), 0);
+  const sumUnpaidDed = payrollStats.reduce((s, p) => s + (Number(p.unpaidLeaveDeductions) || 0), 0);
+  const sumOtherAllow = payrollStats.reduce((s, p) => s + (Number(p.otherAllowances) || 0), 0);
+  const sumOtherDed = payrollStats.reduce((s, p) => s + (Number(p.otherDeductions) || 0), 0);
+  const sumTotalMonthly = payrollStats.reduce((s, p) => s + (Number(p.totalMonthlySalary) || 0), 0);
+  const sumFinalPayable = payrollStats.reduce((s, p) => s + (Number(p.finalPayableSalary !== undefined ? p.finalPayableSalary : p.netTotalPayout) || 0), 0);
+
   tableRows.push([
     '',
     'TOTAL',
-    `${payrollStats.length} Employees`,
-    `Month: ${monthLabel}`,
-    formatINR(totalBaseSalary),
-    formatINR(totalEarnedBase),
-    `${payrollStats.reduce((sum, p) => sum + (p.present || 0), 0)} Shifts`,
-    `${totalLate} Late Days`,
-    `${payrollStats.reduce((sum, p) => sum + (p.absent || 0), 0)} Abs`,
-    `+${formatINR(totalOt)}`,
-    `+${formatINR(totalBonus)} (${totalQualified} qualified)`,
-    formatINR(totalPayroll)
+    `${payrollStats.length} Staff`,
+    formatINR(sumBase),
+    '',
+    sumPresent,
+    sumAbsent,
+    sumPaidLeave,
+    sumUnpaidLeave,
+    sumGovtGranted,
+    sumGovtWorked,
+    sumDoubleDays,
+    `${sumOtHours.toFixed(1)}h`,
+    formatINR(sumOtAmount),
+    formatINR(sumGovtSalary),
+    formatINR(sumDoubleExtra),
+    formatINR(sumUnpaidDed),
+    formatINR(sumOtherAllow),
+    formatINR(sumOtherDed),
+    formatINR(sumTotalMonthly),
+    formatINR(sumFinalPayable)
   ]);
 
   autoTable(doc, {
-    startY: 48,
+    startY: 47,
     head: [[
       '#',
       'Emp ID',
       'Employee Name',
-      'Department / Role',
-      'Monthly Base Salary',
-      'That Month Salary (Earned)',
-      'Present',
-      'Late Days',
-      'Absent',
-      'Overtime',
-      'Full Present Bonus (+2 Days)',
-      'Net Month Salary (Payout)'
+      'Basic Salary',
+      'Work Days',
+      'Present Days',
+      'Absent Days',
+      'Paid Leave',
+      'Unpaid Leave',
+      'Govt Granted',
+      'Govt Worked',
+      '2× Days',
+      'OT Hours',
+      'OT Amount',
+      'Govt Salary',
+      '2× Extra Amt',
+      'Unpaid Ded',
+      'Other Allow',
+      'Other Ded',
+      'Total Salary',
+      'Final Payable'
     ]],
     body: tableRows,
     theme: 'grid',
     styles: {
-      fontSize: 7.8,
-      cellPadding: 2.2,
+      fontSize: 6.2,
+      cellPadding: 1.3,
       textColor: [30, 41, 59],
-      valign: 'middle'
+      valign: 'middle',
+      overflow: 'linebreak'
     },
     headStyles: {
       fillColor: [139, 0, 0],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      halign: 'left'
+      halign: 'center',
+      fontSize: 5.8
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 7 },
-      1: { halign: 'center', cellWidth: 15, fontStyle: 'bold' },
-      2: { cellWidth: 32, fontStyle: 'bold' },
-      3: { cellWidth: 28 },
-      4: { halign: 'right', cellWidth: 25, fontStyle: 'bold' },
-      5: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
-      6: { halign: 'center', cellWidth: 15 },
-      7: { halign: 'center', cellWidth: 18, fontStyle: 'bold' },
-      8: { halign: 'center', cellWidth: 14 },
-      9: { halign: 'center', cellWidth: 20 },
-      10: { halign: 'center', cellWidth: 33, fontStyle: 'bold' },
-      11: { halign: 'right', cellWidth: 34, fontStyle: 'bold' }
+      0: { halign: 'center', cellWidth: 5 },
+      1: { halign: 'center', cellWidth: 12, fontStyle: 'bold' },
+      2: { cellWidth: 22, fontStyle: 'bold' },
+      3: { halign: 'right', cellWidth: 15 },
+      4: { halign: 'center', cellWidth: 9 },
+      5: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      6: { halign: 'center', cellWidth: 9 },
+      7: { halign: 'center', cellWidth: 9 },
+      8: { halign: 'center', cellWidth: 10 },
+      9: { halign: 'center', cellWidth: 11 },
+      10: { halign: 'center', cellWidth: 11 },
+      11: { halign: 'center', cellWidth: 9, fontStyle: 'bold' },
+      12: { halign: 'center', cellWidth: 10 },
+      13: { halign: 'right', cellWidth: 13 },
+      14: { halign: 'right', cellWidth: 13 },
+      15: { halign: 'right', cellWidth: 14, fontStyle: 'bold' },
+      16: { halign: 'right', cellWidth: 14 },
+      17: { halign: 'right', cellWidth: 11 },
+      18: { halign: 'right', cellWidth: 12 },
+      19: { halign: 'right', cellWidth: 17, fontStyle: 'bold' },
+      20: { halign: 'right', cellWidth: 18, fontStyle: 'bold' }
     },
     didParseCell: (data) => {
-      // Highlight That Month Salary (Earned) Column
+      // Highlight Present Days column
       if (data.section === 'body' && data.column.index === 5 && data.row.index < tableRows.length - 1) {
         data.cell.styles.textColor = [4, 120, 87]; // emerald-700
-        data.cell.styles.fontStyle = 'bold';
       }
-      // Highlight Late Days column
-      if (data.section === 'body' && data.column.index === 7 && data.row.index < tableRows.length - 1) {
+      // Highlight Double-Salary Extra Amount Column
+      if (data.section === 'body' && data.column.index === 15 && data.row.index < tableRows.length - 1) {
         const val = String(data.cell.raw);
-        if (val.includes('Late') && !val.startsWith('0')) {
-          data.cell.styles.textColor = [180, 83, 9]; // amber-700
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
-          data.cell.styles.fontStyle = 'bold';
-        } else {
-          data.cell.styles.textColor = [4, 120, 87]; // emerald-700
-        }
-      }
-      // Highlight bonus column
-      if (data.section === 'body' && data.column.index === 10) {
-        const val = String(data.cell.raw);
-        if (val.startsWith('YES')) {
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
+        if (val && !val.includes('Rs. 0')) {
           data.cell.styles.textColor = [146, 64, 14]; // amber-800
-          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
         }
       }
-      // Highlight Net Month Salary column
-      if (data.section === 'body' && data.column.index === 11) {
+      // Highlight Unpaid Deductions Column
+      if (data.section === 'body' && data.column.index === 16 && data.row.index < tableRows.length - 1) {
+        const val = String(data.cell.raw);
+        if (val && !val.includes('Rs. 0')) {
+          data.cell.styles.textColor = [225, 29, 72]; // rose-600
+        }
+      }
+      // Highlight Final Payable Salary Column
+      if (data.section === 'body' && data.column.index === 20) {
         data.cell.styles.textColor = [139, 0, 0]; // maroon
         data.cell.styles.fontStyle = 'bold';
       }
-      // Highlight TOTAL row
+      // Highlight TOTAL row at bottom
       if (data.section === 'body' && data.row.index === tableRows.length - 1) {
         data.cell.styles.fillColor = [241, 245, 249]; // slate-100
         data.cell.styles.fontStyle = 'bold';
-        if (data.column.index === 11) {
+        if (data.column.index === 20) {
+          data.cell.styles.fontSize = 7;
           data.cell.styles.textColor = [139, 0, 0];
-          data.cell.styles.fontSize = 8.5;
         }
       }
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 8, right: 8 },
     didDrawPage: (data) => {
       // Footer on every page
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.setFont('helvetica', 'normal');
-      const footerText = `Velavan Properties Payroll & HR Management System • Salary Month: ${monthLabel}`;
-      doc.text(footerText, 14, pageHeight - 8);
+      const footerText = `Velavan Properties • Monthly Attendance & Salary Report (${monthLabel}) • Confidential & Proprietary`;
+      doc.text(footerText, 14, pageHeight - 6);
       const pageStr = `Page ${data.pageNumber} of ${doc.internal.getNumberOfPages()}`;
-      doc.text(pageStr, pageWidth - 14, pageHeight - 8, { align: 'right' });
+      doc.text(pageStr, pageWidth - 14, pageHeight - 6, { align: 'right' });
     }
   });
 
-  // Secondary Table: Itemized Late Arrival Audit Trail in Monthly Payroll Report
-  const lateRecords = (attendanceData || []).filter(r => isLateArrival(r.clock_in, r.status));
-  if (lateRecords.length > 0) {
-    let nextY = doc.lastAutoTable.finalY + 8;
-    if (nextY > pageHeight - 45) {
-      doc.addPage();
-      nextY = 20;
-    }
+  // Official Policy Summary & Sign-off Block
+  let nextY = doc.lastAutoTable.finalY + 5;
+  if (nextY > pageHeight - 34) {
+    doc.addPage();
+    nextY = 16;
+  }
 
-    doc.setFontSize(9.5);
+  doc.setFillColor(248, 250, 252);
+  doc.rect(8, nextY, pageWidth - 16, 16, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.rect(8, nextY, pageWidth - 16, 16, 'S');
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 0, 0);
+  doc.text('OFFICIAL SALARY CALCULATION RULES & STATUTORY COMPLIANCE SUMMARY:', 12, nextY + 4);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('• Rule 1 (Govt Holiday Worked): 2x Daily Salary (1x covered in base + 1x extra payout disbursed).', 12, nextY + 8);
+  doc.text('• Rule 2 (Govt Holiday Granted): 1x Daily Salary (Office granted paid leave, 0 salary deduction).', 12, nextY + 12);
+  doc.text('• Rule 3 (Employee Own Leave): Unpaid leave (-1x daily rate deducted per unpaid leave day).', 120, nextY + 8);
+  doc.text('• Full Attendance Bonus (+2 Days): 0 absences in month awards 2 days extra salary.', 120, nextY + 12);
+  doc.text('• Overtime: 1.5x hourly rate beyond 06:00 PM shift buffer.', 215, nextY + 8);
+  doc.text('• Payout: Final Payable Salary = Base - Deductions + 2x Extra + OT + Allowances.', 215, nextY + 12);
+
+  // Signatures
+  const signY = nextY + 19;
+  if (signY < pageHeight - 10) {
+    doc.setDrawColor(203, 213, 225);
+    doc.line(16, signY + 6, 75, signY + 6);
+    doc.line(115, signY + 6, 175, signY + 6);
+    doc.line(215, signY + 6, 275, signY + 6);
+
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(180, 83, 9);
-    doc.text('MONTHLY ITEMIZED LATE ARRIVALS AUDIT BREAKDOWN (Punched Past 09:40 AM Grace Cutoff)', 14, nextY);
-
-    const lateTableRows = lateRecords.map((r, idx) => {
-      const lateMins = getLateMinutes(r.clock_in);
-      return [
-        idx + 1,
-        r.date || '--',
-        r.emp_id || '--',
-        r.employee_name || r.name || r.emp_id || '--',
-        r.department || 'Digital Marketing',
-        formatTime(r.clock_in),
-        '09:40 AM',
-        `+${lateMins > 0 ? lateMins : 1} mins`,
-        '⚠ LATE ARRIVAL',
-        r.notes || `Punched in past 09:40 AM (+${lateMins}m late)`
-      ];
-    });
-
-    autoTable(doc, {
-      startY: nextY + 3,
-      head: [[
-        '#',
-        'Date',
-        'Emp ID',
-        'Employee Name',
-        'Department',
-        'Actual In',
-        'Grace Cutoff',
-        'Late Duration',
-        'Punctuality Status',
-        'Audit Remarks'
-      ]],
-      body: lateTableRows,
-      theme: 'grid',
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        textColor: [30, 41, 59],
-        valign: 'middle'
-      },
-      headStyles: {
-        fillColor: [180, 83, 9], // amber-700
-        textColor: [255, 255, 255],
-        fontStyle: 'bold'
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 8 },
-        1: { halign: 'center', cellWidth: 22 },
-        2: { halign: 'center', cellWidth: 18, fontStyle: 'bold' },
-        3: { cellWidth: 42, fontStyle: 'bold' },
-        4: { cellWidth: 32 },
-        5: { halign: 'center', cellWidth: 22, fontStyle: 'bold' },
-        6: { halign: 'center', cellWidth: 22 },
-        7: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 83, 9] },
-        8: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
-        9: { cellWidth: 46 }
-      },
-      didParseCell: (data) => {
-        if (data.section === 'body' && (data.column.index === 5 || data.column.index === 7 || data.column.index === 8)) {
-          data.cell.styles.fillColor = [254, 243, 199];
-          data.cell.styles.textColor = [180, 83, 9];
-        }
-      },
-      margin: { left: 14, right: 14 }
-    });
+    doc.text('Prepared By (HR & Payroll)', 22, signY + 10);
+    doc.text('Verified By (Accounts Officer)', 122, signY + 10);
+    doc.text('Approved By (Managing Director)', 220, signY + 10);
   }
 
   const fileDate = filters.startDate ? `${filters.startDate}_to_${filters.endDate || 'now'}` : new Date().toISOString().slice(0, 10);
-  doc.save(`Velavan_Payroll_Report_${fileDate}.pdf`);
+  doc.save(`Velavan_Monthly_Attendance_Salary_Report_${fileDate}.pdf`);
 };
 
 /**
@@ -712,7 +649,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(254, 240, 138); // Yellow accent
-  doc.text('OFFICIAL MONTHLY SALARY SLIP & ATTENDANCE AUDIT STATEMENT', 14, 18);
+  doc.text('OFFICIAL MONTHLY SALARY SLIP & ATTENDANCE STATEMENT', 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -804,7 +741,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
   doc.setTextColor(71, 85, 105);
   doc.text(`Daily Rate: ${formatINR(stats.dailyRate || 0)}/day`, rightX, infoY + 19.5);
 
-  // Attendance & Late Summary Metric Boxes (KPI Row)
+  // Attendance Summary Metric Boxes (KPI Row - without late arrival metrics)
   const kpiY = 72;
   const kpiH = 16;
   const kpiW = (pageWidth - 28 - 9) / 4;
@@ -813,25 +750,25 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     {
       label: 'DAYS PRESENT',
       val: `${stats.present || 0} Days`,
-      sub: `${records.length} shifts logged`,
+      sub: `${records.length} shifts recorded`,
       color: [4, 120, 87] // emerald
     },
     {
-      label: 'DAYS CAME LATE',
-      val: `${stats.late || 0} Late Days`,
-      sub: (stats.late || 0) > 0 ? 'Punched after 09:40 AM' : '100% On-Time',
-      color: (stats.late || 0) > 0 ? [180, 83, 9] : [4, 120, 87] // amber
+      label: 'GOVT HOLIDAYS / 2× DAYS',
+      val: `${(stats.govtHolidayWorked || 0) + (stats.govtHolidayGranted || 0)} Days`,
+      sub: `${stats.govtHolidayWorked || 0} worked (2× pay), ${stats.govtHolidayGranted || 0} granted`,
+      color: [180, 83, 9] // amber
     },
     {
-      label: 'DAYS ABSENT',
+      label: 'DAYS ABSENT (LOP)',
       val: `${stats.absent || 0} Days`,
-      sub: `${stats.halfday || 0} half-days logged`,
+      sub: `${stats.ownLeaveDays || 0} own unpaid leave`,
       color: (stats.absent || 0) > 0 ? [225, 29, 72] : [100, 116, 139] // rose
     },
     {
       label: 'OVERTIME (OT)',
       val: `${stats.otMinutes > 0 ? stats.otMinutes + ' mins' : '0 mins'}`,
-      sub: `+${formatINR(stats.otPay || 0)} earned`,
+      sub: `+${formatINR(stats.otPay || stats.otAmount || 0)} earned`,
       color: [139, 0, 0] // maroon
     }
   ];
@@ -873,7 +810,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     doc.text('★ 100% FULL ATTENDANCE BONUS AWARDED (+2 DAYS EXTRA SALARY) ★', 18, policyY + 4.5);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.text(`Employee achieved 0 Absences and 0 Half-Days! Extra bonus of +${formatINR(stats.fullPresentBonus)} added to net payout.`, 18, policyY + 7.5);
+    doc.text(`Employee achieved 0 Absences! Extra bonus of +${formatINR(stats.fullPresentBonus)} added to net payout.`, 18, policyY + 7.5);
   } else {
     doc.setFillColor(248, 250, 252);
     doc.rect(14, policyY, pageWidth - 28, 8, 'F');
@@ -884,8 +821,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
     const absText = stats.absent > 0 ? `${stats.absent} absence(s)` : '0 absences';
-    const lateText = (stats.late || 0) > 0 ? `${stats.late} late arrival(s)` : '0 late';
-    doc.text(`Policy Note: Standard monthly attendance applied (${absText}, ${lateText}). 100% full attendance qualifies for +2 days extra bonus.`, 18, policyY + 5.5);
+    doc.text(`Policy Note: Standard monthly attendance applied (${absText}). 100% full attendance (0 absences) qualifies for +2 days extra bonus.`, 18, policyY + 5.5);
   }
 
   // Section 1: Salary Calculation Breakdown Table (Supports Government Holidays & Unpaid Leave)
@@ -946,8 +882,8 @@ export const exportSingleEmployeeSalarySlipPDF = ({
   if ((stats.otMinutes || 0) > 0) {
     calcRows.push([
       'Overtime (OT) Earnings',
-      `${stats.otMinutes} mins logged beyond 6:00 PM buffer @ 1.5x rate`,
-      `+${formatINR(stats.otPay || 0)}`
+      `${stats.otMinutes} mins logged beyond shift @ 1.5x rate`,
+      `+${formatINR(stats.otPay || stats.otAmount || 0)}`
     ]);
   }
 
@@ -957,18 +893,12 @@ export const exportSingleEmployeeSalarySlipPDF = ({
       '100% Full Attendance Incentive (2 Days Prorated Salary)',
       `+${formatINR(stats.fullPresentBonus || 0)}`
     ]);
-  } else if ((stats.absent || 0) > 0) {
-    calcRows.push([
-      'Full Present Bonus (+2 Days Extra Salary)',
-      `Requires 0 Absences (Staff had ${stats.absent} absences)`,
-      'Rs. 0'
-    ]);
   }
 
   calcRows.push([
     'TOTAL NET PAYABLE SALARY',
     'Net Bank Transfer / Disbursal Amount',
-    formatINR(stats.netTotalPayout || stats.finalPayableSalary || 0)
+    formatINR(stats.finalPayableSalary || stats.netTotalPayout || 0)
   ]);
 
   autoTable(doc, {
@@ -1011,7 +941,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     margin: { left: 14, right: 14 }
   });
 
-  // Section 2: Detailed Day-by-Day Attendance Trail for this Employee
+  // Section 2: Detailed Day-by-Day Attendance Trail for this Employee (without late warnings)
   const nextY = doc.lastAutoTable.finalY + 6;
 
   doc.setFontSize(9);
@@ -1022,41 +952,41 @@ export const exportSingleEmployeeSalarySlipPDF = ({
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text(`(Exact Clock-In, Clock-Out, Hours, OT, and Late Flag for ${stats.name})`, 85, nextY);
+  doc.text(`(Exact Clock-In, Clock-Out, Hours, OT, and Method for ${stats.name})`, 85, nextY);
 
   const empRecords = [...records].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const dailyRows = empRecords.map((r, idx) => {
-    const hours = (r.total_hours !== undefined && r.total_hours !== null) ? Number(r.total_hours).toFixed(1) + ' hrs' : '--';
+    const hours = (r.total_hours !== undefined && r.total_hours !== null && r.total_hours > 0) ? Number(r.total_hours).toFixed(1) + ' hrs' : '--';
     const ot = r.ot_minutes ? `${r.ot_minutes}m` : '--';
-    const isLate = isLateArrival(r.clock_in, r.status);
-    const lateMins = getLateMinutes(r.clock_in);
 
-    let inDisplay = r.clock_in ? formatTime(r.clock_in) : '--';
-    if (isLate && r.clock_in && r.clock_in !== '--') {
-      inDisplay = `${formatTime(r.clock_in)}\n(Late +${lateMins > 0 ? lateMins : 1}m)`;
-    }
+    const inDisplay = r.clock_in ? formatTime(r.clock_in) : '--';
     const isPendingCheckout = (!r.clock_out || r.clock_out === '--' || r.status === 'checked_in') && r.status !== 'absent' && r.status !== 'weekly_off' && r.holiday_type !== 'own_leave' && r.holiday_type !== 'govt_holiday_leave';
     const outDisplay = (r.clock_out && r.clock_out !== '--') ? formatTime(r.clock_out) : isPendingCheckout ? 'Pending' : '--';
 
-    let statusText = 'PRESENT\n(On-Time)';
+    let statusText = 'PRESENT';
     const isOD = r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od' || r.clock_in === 'OD' || r.clock_out === 'OD';
+    const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
+    const isGovtLeave = r.holiday_type === 'govt_holiday_leave' || r.status === 'holiday';
+
     if (isPendingCheckout) {
-      statusText = 'CHECKED IN\n(Checkout Pending)';
+      statusText = 'IN PROGRESS';
     } else if (isOD) {
       statusText = r.status === 'login_od' ? 'LOGIN OD' : r.status === 'logout_od' ? 'LOGOUT OD' : 'ON DUTY (OD)';
-    } else if (r.status === 'absent') {
+    } else if (r.status === 'absent' || r.holiday_type === 'own_leave') {
       statusText = 'ABSENT';
+    } else if (isGovtWorked) {
+      statusText = 'GOVT HOLIDAY (2×)';
+    } else if (isGovtLeave) {
+      statusText = 'GOVT HOLIDAY (Paid)';
     } else if (r.status === 'half_day') {
       statusText = 'HALF-DAY';
     } else if (r.status === 'weekly_off') {
       statusText = 'WEEKLY OFF';
-    } else if (isLate) {
-      statusText = `⚠ LATE ARRIVAL\n(+${lateMins > 0 ? lateMins : 1}m late)`;
+    } else {
+      statusText = 'PRESENT';
     }
 
-    const noteText = isLate
-      ? `Punched past 09:40 AM (+${lateMins > 0 ? lateMins : 1}m late)`
-      : (r.notes || (r.status === 'absent' ? 'Absent' : 'On-time punch'));
+    const noteText = r.notes || (r.status === 'absent' ? 'Absent (Loss of Pay)' : (r.method === 'facelock' ? 'FaceLock verified' : 'Manual entry'));
 
     return [
       idx + 1,
@@ -1076,7 +1006,7 @@ export const exportSingleEmployeeSalarySlipPDF = ({
 
   autoTable(doc, {
     startY: nextY + 3,
-    head: [['#', 'Date', 'Clock In', 'Clock Out', 'Hours', 'OT', 'Punctuality / Status', 'Notes / Grace Period']],
+    head: [['#', 'Date', 'Clock In', 'Clock Out', 'Hours', 'OT', 'Attendance Status', 'Remarks / Method']],
     body: dailyRows,
     theme: 'grid',
     styles: {
@@ -1093,34 +1023,22 @@ export const exportSingleEmployeeSalarySlipPDF = ({
     columnStyles: {
       0: { halign: 'center', cellWidth: 8 },
       1: { halign: 'center', cellWidth: 20 },
-      2: { halign: 'center', cellWidth: 25, fontStyle: 'bold' },
+      2: { halign: 'center', cellWidth: 25 },
       3: { halign: 'center', cellWidth: 20 },
       4: { halign: 'center', cellWidth: 15 },
       5: { halign: 'center', cellWidth: 15 },
-      6: { halign: 'center', cellWidth: 32, fontStyle: 'bold' },
-      7: { cellWidth: 47 }
+      6: { halign: 'center', cellWidth: 35, fontStyle: 'bold' },
+      7: { cellWidth: 44 }
     },
     didParseCell: (data) => {
-      // Highlight Late Clock-In column
-      if (data.section === 'body' && data.column.index === 2) {
-        const val = String(data.cell.raw);
-        if (val.includes('Late') || val.includes('+')) {
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
-          data.cell.styles.textColor = [180, 83, 9]; // amber-700
-          data.cell.styles.fontStyle = 'bold';
-        }
-      }
-      // Highlight Late status
       if (data.section === 'body' && data.column.index === 6) {
         const val = String(data.cell.raw).toUpperCase();
-        if (val.includes('LATE')) {
-          data.cell.styles.fillColor = [254, 243, 199]; // amber-100
-          data.cell.styles.textColor = [180, 83, 9]; // amber-700
-          data.cell.styles.fontStyle = 'bold';
-        } else if (val.includes('PRESENT')) {
+        if (val.includes('PRESENT')) {
           data.cell.styles.textColor = [4, 120, 87];
         } else if (val.includes('ABSENT')) {
           data.cell.styles.textColor = [225, 29, 72];
+        } else if (val.includes('GOVT')) {
+          data.cell.styles.textColor = [180, 83, 9];
         }
       }
     },
