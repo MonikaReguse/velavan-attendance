@@ -46,7 +46,7 @@ export default function ManualAttendanceUpdate() {
     return [];
   });
   const [recentLogs, setRecentLogs] = useState(() => {
-    return getLocalAttendance().slice(0, 100);
+    return getLocalAttendance();
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -156,7 +156,18 @@ export default function ManualAttendanceUpdate() {
       const cleanEmpList = empList || [];
       setEmployees(cleanEmpList);
       const cleanHistory = mergeAttendanceWithLocal(historyList || []);
-      setRecentLogs(cleanHistory);
+      setRecentLogs(prev => {
+        const map = new Map(cleanHistory.map(h => [`${h.emp_id}_${h.date}`, h]));
+        // Retain any active entries from local state that may not have reached server yet
+        prev.forEach(p => {
+          const k = `${p.emp_id}_${p.date}`;
+          if (!map.has(k)) map.set(k, p);
+        });
+        return Array.from(map.values()).sort((a,b) => {
+          if (b.date !== a.date) return b.date.localeCompare(a.date);
+          return (b.clock_in || '').localeCompare(a.clock_in || '');
+        });
+      });
 
       // On initial startup completion, auto-populate the form if pristine
       if (!initialFetchDoneRef.current && cleanEmpList.length > 0) {
@@ -887,7 +898,17 @@ export default function ManualAttendanceUpdate() {
         api.getAttendanceHistory().then(updatedLogs => {
           if (Array.isArray(updatedLogs)) {
             const merged = mergeAttendanceWithLocal(updatedLogs);
-            setRecentLogs(merged);
+            setRecentLogs(prev => {
+              const map = new Map(merged.map(m => [`${m.emp_id}_${m.date}`, m]));
+              prev.forEach(p => {
+                const k = `${p.emp_id}_${p.date}`;
+                if (!map.has(k)) map.set(k, p);
+              });
+              return Array.from(map.values()).sort((a,b) => {
+                if (b.date !== a.date) return b.date.localeCompare(a.date);
+                return (b.clock_in || '').localeCompare(a.clock_in || '');
+              });
+            });
           }
         }).catch(() => {});
 

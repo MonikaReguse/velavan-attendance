@@ -40,6 +40,7 @@ import {
   Download
 } from 'lucide-react';
 import { api } from '../services/api';
+import { safeSetItem } from '../services/attendanceStorage';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { downloadFile } from '../services/downloadUtils';
 import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from '../services/officialStaffProfiles';
@@ -404,7 +405,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
           } else {
             parsed.push(fullEmp);
           }
-          localStorage.setItem('velavan_employee_directory_list', JSON.stringify(parsed));
+          safeSetItem('velavan_employee_directory_list', JSON.stringify(parsed));
 
           // Also update attendance caches so that any attendance record for this employee immediately shows the updated name and department
           try {
@@ -428,7 +429,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
                     }
                     return a;
                   });
-                  if (changed) localStorage.setItem(listKey, JSON.stringify(updated));
+                  if (changed) safeSetItem(listKey, JSON.stringify(updated));
                 }
               }
             };

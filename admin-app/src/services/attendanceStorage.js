@@ -1,4 +1,8 @@
 import { api } from './api';
+import { getTodayDateIST } from './timeUtils';
+
+// In-memory persistent master cache ensuring punches survive any localStorage drops/delays
+const memoryAttendanceMap = new Map();
 
 // Safe check for valid production attendance records
 export const isValidAttendanceRecord = (record) => {
@@ -20,10 +24,73 @@ export const getDeletedPunchKeys = () => {
   return new Set();
 };
 
-// Retrieve all local attendance records across every storage key (excluding deleted ones)
+// Sanitize attendance record for local storage to prevent QuotaExceededError
+// Strips massive base64 images from log caches while preserving URLs and metadata
+export const sanitizePunchForLocal = (punch) => {
+  if (!punch) return punch;
+  const clean = { ...punch };
+  if (clean.punch_photo && typeof clean.punch_photo === 'string' && clean.punch_photo.length > 2048 && clean.punch_photo.startsWith('data:')) {
+    clean.has_photo = true;
+    clean.punch_photo = undefined;
+  }
+  return clean;
+};
+
+// Safe localStorage setter with automatic quota recovery
+export const safeSetItem = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn(`[Storage Quota Warning] Failed to set ${key}. Cleaning heavy bloat...`, err.message);
+    try {
+      // Clear non-critical caches to free up localStorage quota immediately
+      localStorage.removeItem('velavan_employee_form_draft');
+      localStorage.removeItem('velavan_deleted_ids');
+
+      // Clean up master backup if it contains bloated base64 documents
+      const bStr = localStorage.getItem('velavan_master_database_backup');
+      if (bStr && bStr.length > 1000000) {
+        try {
+          const b = JSON.parse(bStr);
+          if (Array.isArray(b?.employees)) {
+            b.employees = b.employees.map(e => {
+              const stripped = { ...e };
+              ['doc_aadhaar', 'doc_pan', 'doc_bank_passbook', 'doc_10th', 'doc_12th', 'doc_college', 'doc_marksheet'].forEach(doc => {
+                if (stripped[doc] && typeof stripped[doc] === 'string' && stripped[doc].length > 500) {
+                  stripped[doc] = 'stored_in_db';
+                }
+              });
+              return stripped;
+            });
+            localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+          }
+        } catch {}
+      }
+
+      // Retry original write
+      localStorage.setItem(key, value);
+      return true;
+    } catch (retryErr) {
+      console.error(`[Storage Quota Critical] Could not save ${key} even after cleanup:`, retryErr.message);
+      return false;
+    }
+  }
+};
+
+// Retrieve all local attendance records across in-memory cache and storage keys (excluding deleted ones)
 export const getLocalAttendance = () => {
   const deletedKeys = getDeletedPunchKeys();
   const recordsMap = new Map();
+
+  // 1. First include any in-memory records
+  for (const [key, item] of memoryAttendanceMap.entries()) {
+    if (isValidAttendanceRecord(item)) {
+      if (!deletedKeys.has(key) && (!item.id || !deletedKeys.has(String(item.id)))) {
+        recordsMap.set(key, item);
+      }
+    }
+  }
 
   const addList = (list) => {
     if (!Array.isArray(list)) return;
@@ -37,14 +104,17 @@ export const getLocalAttendance = () => {
         const existing = recordsMap.get(key);
         if (!existing) {
           recordsMap.set(key, item);
+          memoryAttendanceMap.set(key, item);
         } else {
           // Respect latest item, preserving biometric photo if item has none
           const photo = item.punch_photo || existing.punch_photo;
-          recordsMap.set(key, {
+          const mergedItem = {
             ...existing,
             ...item,
             punch_photo: photo
-          });
+          };
+          recordsMap.set(key, mergedItem);
+          memoryAttendanceMap.set(key, mergedItem);
         }
       }
     }
@@ -73,7 +143,7 @@ export const getLocalAttendance = () => {
   return Array.from(recordsMap.values());
 };
 
-// Remove a deleted attendance punch locally across ALL storage keys and mark deleted
+// Remove a deleted attendance punch locally across memory and ALL storage keys and mark deleted
 export const removePunchLocally = (id, emp_id, date) => {
   const matchRecord = (item) => {
     if (!item) return false;
@@ -84,12 +154,22 @@ export const removePunchLocally = (id, emp_id, date) => {
 
   const key = emp_id && date ? `${emp_id}_${date}` : null;
 
+  // Remove from in-memory map
+  if (key) memoryAttendanceMap.delete(key);
+  if (id) {
+    for (const [k, v] of memoryAttendanceMap.entries()) {
+      if (String(v.id) === String(id)) {
+        memoryAttendanceMap.delete(k);
+      }
+    }
+  }
+
   // 1. Mark as permanently deleted so sync never resurrects it
   try {
     const deletedKeys = getDeletedPunchKeys();
     if (key) deletedKeys.add(key);
     if (id) deletedKeys.add(String(id));
-    localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+    safeSetItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
   } catch {}
 
   // 2. Remove from master database backup
@@ -99,7 +179,7 @@ export const removePunchLocally = (id, emp_id, date) => {
       const b = JSON.parse(bStr);
       if (Array.isArray(b?.attendance)) {
         b.attendance = b.attendance.filter(a => !matchRecord(a));
-        localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+        safeSetItem('velavan_master_database_backup', JSON.stringify(b));
       }
     }
   } catch {}
@@ -109,7 +189,7 @@ export const removePunchLocally = (id, emp_id, date) => {
     const lStr = localStorage.getItem('velavan_attendance_logs_cache');
     if (lStr) {
       const l = JSON.parse(lStr).filter(a => !matchRecord(a));
-      localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(l));
+      safeSetItem('velavan_attendance_logs_cache', JSON.stringify(l));
     }
   } catch {}
 
@@ -118,7 +198,7 @@ export const removePunchLocally = (id, emp_id, date) => {
     const tStr = localStorage.getItem('velavan_today_attendance');
     if (tStr) {
       const t = JSON.parse(tStr).filter(a => !matchRecord(a));
-      localStorage.setItem('velavan_today_attendance', JSON.stringify(t));
+      safeSetItem('velavan_today_attendance', JSON.stringify(t));
     }
   } catch {}
 
@@ -127,7 +207,7 @@ export const removePunchLocally = (id, emp_id, date) => {
     const rStr = localStorage.getItem('velavan_realtime_punches');
     if (rStr) {
       const r = JSON.parse(rStr).filter(a => !matchRecord(a));
-      localStorage.setItem('velavan_realtime_punches', JSON.stringify(r));
+      safeSetItem('velavan_realtime_punches', JSON.stringify(r));
     }
   } catch {}
 
@@ -141,13 +221,16 @@ export const savePunchLocally = (punch) => {
   if (!isValidAttendanceRecord(punch)) return;
   const key = `${punch.emp_id}_${punch.date}`;
 
+  // Store in authoritative memory cache immediately
+  memoryAttendanceMap.set(key, punch);
+
   // If this punch was previously marked deleted, un-mark it
   try {
     const deletedKeys = getDeletedPunchKeys();
     if (deletedKeys.has(key) || (punch.id && deletedKeys.has(String(punch.id)))) {
       deletedKeys.delete(key);
       if (punch.id) deletedKeys.delete(String(punch.id));
-      localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+      safeSetItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
     }
   } catch {}
 
@@ -162,6 +245,8 @@ export const savePunchLocally = (punch) => {
     };
   };
 
+  const sanitized = sanitizePunchForLocal(punch);
+
   // 1. Update master backup
   try {
     const bStr = localStorage.getItem('velavan_master_database_backup');
@@ -169,11 +254,11 @@ export const savePunchLocally = (punch) => {
     if (!Array.isArray(b.attendance)) b.attendance = [];
     const idx = b.attendance.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      b.attendance[idx] = mergeIntoRecord(b.attendance[idx], punch);
+      b.attendance[idx] = mergeIntoRecord(b.attendance[idx], sanitized);
     } else {
-      b.attendance.unshift(punch);
+      b.attendance.unshift(sanitized);
     }
-    localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+    safeSetItem('velavan_master_database_backup', JSON.stringify(b));
   } catch (e) {}
 
   // 2. Update attendance logs cache
@@ -182,26 +267,26 @@ export const savePunchLocally = (punch) => {
     const logs = lStr ? JSON.parse(lStr) : [];
     const idx = logs.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      logs[idx] = mergeIntoRecord(logs[idx], punch);
+      logs[idx] = mergeIntoRecord(logs[idx], sanitized);
     } else {
-      logs.unshift(punch);
+      logs.unshift(sanitized);
     }
-    localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(logs));
+    safeSetItem('velavan_attendance_logs_cache', JSON.stringify(logs));
   } catch (e) {}
 
-  // 3. Update today's attendance cache if date is today
-  const today = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  if (punch.date === today) {
+  // 3. Update today's attendance cache if date is today (in Asia/Kolkata timezone!)
+  const todayIST = getTodayDateIST();
+  if (punch.date === todayIST) {
     try {
       const tStr = localStorage.getItem('velavan_today_attendance');
       const todayList = tStr ? JSON.parse(tStr) : [];
       const idx = todayList.findIndex(a => `${a.emp_id}_${a.date}` === key);
       if (idx !== -1) {
-        todayList[idx] = mergeIntoRecord(todayList[idx], punch);
+        todayList[idx] = mergeIntoRecord(todayList[idx], sanitized);
       } else {
-        todayList.unshift(punch);
+        todayList.unshift(sanitized);
       }
-      localStorage.setItem('velavan_today_attendance', JSON.stringify(todayList));
+      safeSetItem('velavan_today_attendance', JSON.stringify(todayList));
     } catch (e) {}
   }
 
@@ -211,11 +296,11 @@ export const savePunchLocally = (punch) => {
     const rList = rStr ? JSON.parse(rStr) : [];
     const idx = rList.findIndex(a => `${a.emp_id}_${a.date}` === key);
     if (idx !== -1) {
-      rList[idx] = mergeIntoRecord(rList[idx], punch);
+      rList[idx] = mergeIntoRecord(rList[idx], sanitized);
     } else {
-      rList.unshift(punch);
+      rList.unshift(sanitized);
     }
-    localStorage.setItem('velavan_realtime_punches', JSON.stringify(rList));
+    safeSetItem('velavan_realtime_punches', JSON.stringify(rList));
   } catch (e) {}
 
   // 5. Broadcast real-time update event
@@ -234,12 +319,13 @@ export const syncLocalRecordsToServer = async (recordsToSync) => {
       if (!isValidAttendanceRecord(rec)) continue;
       try {
         await api.recordManualAttendance({
+          id: rec.id || undefined,
           emp_id: rec.emp_id,
           date: rec.date,
           clock_in: rec.clock_in,
           clock_out: rec.clock_out,
           status: rec.status,
-          notes: rec.notes || 'Restored from local persistent storage',
+          notes: rec.notes || 'Restored from persistent storage',
           ot_minutes: rec.ot_minutes || 0,
           holiday_type: rec.holiday_type || 'normal'
         });
@@ -255,7 +341,7 @@ export const syncLocalRecordsToServer = async (recordsToSync) => {
 };
 
 // Smart 2-way merge: Combine server records with local storage, prioritizing authoritative server data
-// and permanently preserving all local records across all dates and all employees.
+// and permanently preserving ALL local records across all dates and all employees.
 export const mergeAttendanceWithLocal = (serverRecords = []) => {
   const validServer = (Array.isArray(serverRecords) ? serverRecords : []).filter(isValidAttendanceRecord);
   const localList = getLocalAttendance();
@@ -268,6 +354,7 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     const key = `${l.emp_id}_${l.date}`;
     if (!deletedKeys.has(key) && (!l.id || !deletedKeys.has(String(l.id)))) {
       map.set(key, l);
+      memoryAttendanceMap.set(key, l);
     }
   }
 
@@ -279,21 +366,24 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
       deletedKeys.delete(key);
       if (s.id) deletedKeys.delete(String(s.id));
       try {
-        localStorage.setItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
+        safeSetItem('velavan_deleted_punches', JSON.stringify(Array.from(deletedKeys)));
       } catch {}
     }
 
     const existing = map.get(key);
     if (!existing) {
       map.set(key, s);
+      memoryAttendanceMap.set(key, s);
     } else {
       // Authoritative database record s ALWAYS wins, preserving biometric photo if s has none
       const photo = s.punch_photo || existing.punch_photo;
-      map.set(key, {
+      const mergedItem = {
         ...existing,
         ...s,
         punch_photo: photo
-      });
+      };
+      map.set(key, mergedItem);
+      memoryAttendanceMap.set(key, mergedItem);
     }
   }
 
@@ -302,16 +392,18 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     return (b.clock_in || '').localeCompare(a.clock_in || '');
   });
 
-  // Save merged result back to local caches so local storage ALWAYS has the full history
+  // Save sanitized result back to local caches so local storage ALWAYS has the full history
+  const sanitizedList = merged.map(sanitizePunchForLocal);
+
   try {
-    localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(merged));
+    safeSetItem('velavan_attendance_logs_cache', JSON.stringify(sanitizedList));
   } catch {}
 
   try {
     const bStr = localStorage.getItem('velavan_master_database_backup');
     const b = bStr ? JSON.parse(bStr) : { employees: [], attendance: [] };
-    b.attendance = merged;
-    localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
+    b.attendance = sanitizedList;
+    safeSetItem('velavan_master_database_backup', JSON.stringify(b));
   } catch {}
 
   return merged;

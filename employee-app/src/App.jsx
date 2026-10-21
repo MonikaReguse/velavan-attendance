@@ -14,23 +14,10 @@ function MainApp() {
   const { activeEmployee, isAuthenticated, logout, loading } = useApp();
 
   useEffect(() => {
-    // One-Time Initial Reset: Clean slate for daily attendance from scratch
-    const initialResetKey = 'velavan_attendance_reset_v1_scratch';
-    if (!localStorage.getItem(initialResetKey)) {
-      try {
-        localStorage.removeItem('velavan_attendance_logs_cache');
-        localStorage.removeItem('velavan_today_attendance');
-        localStorage.removeItem('velavan_realtime_punches');
-        localStorage.removeItem('velavan_deleted_punches');
-        const bStr = localStorage.getItem('velavan_master_database_backup');
-        if (bStr) {
-          const b = JSON.parse(bStr);
-          b.attendance = [];
-          localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
-        }
-      } catch (e) {}
-      localStorage.setItem(initialResetKey, 'true');
-    }
+    // Keep alive and check settings
+    api.getSettings().then(s => {
+      if (s?.office_name) setOfficeName(s.office_name);
+    }).catch(() => {});
   }, []);
 
   // If loading session

@@ -81,9 +81,10 @@ export default function AdminDashboard({ setActiveTab }) {
         day: '2-digit' 
       }).format(new Date());
 
-      // If server returned records, use them directly as primary truth and overlay any new local today punches
+      // If server returned records, merge them into local/memory storage and combine with any unsaved local punches
       let todayList = [];
       if (Array.isArray(attRes) && attRes.length > 0) {
+        mergeAttendanceWithLocal(attRes);
         const localList = getLocalAttendance().filter(a => a.date === currentDay);
         const serverKeys = new Set(attRes.map(a => a.emp_id));
         const unsavedLocal = localList.filter(l => !serverKeys.has(l.emp_id));

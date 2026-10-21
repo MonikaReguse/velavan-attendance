@@ -159,6 +159,7 @@ export default function AttendanceLogs() {
         clock_in: log.clock_in || '09:30:00',
         clock_out: log.clock_out || '18:00:00',
         status: log.status || 'present',
+        holiday_type: log.holiday_type || 'normal',
         notes: log.notes || 'HR manual adjustment'
       });
     } else {
@@ -169,6 +170,7 @@ export default function AttendanceLogs() {
         clock_in: '09:30:00',
         clock_out: '18:00:00',
         status: 'present',
+        holiday_type: 'normal',
         notes: 'HR manual entry'
       });
     }
@@ -187,6 +189,7 @@ export default function AttendanceLogs() {
       const payload = {
         ...formData,
         notes: trimmedNotes || (isOD ? 'Client Site Visit' : 'HR manual adjustment'),
+        holiday_type: formData.holiday_type || 'normal',
         clock_in: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_in || '--'),
         clock_out: (formData.status === 'absent' || formData.status === 'weekly_off') ? '--' : (formData.clock_out || '--')
       };
@@ -196,6 +199,7 @@ export default function AttendanceLogs() {
         id: res.id || formData.id || undefined,
         method: 'manual',
         status: payload.status || 'present',
+        holiday_type: payload.holiday_type || 'normal',
         notes: payload.notes
       };
       savePunchLocally(savedPunch);

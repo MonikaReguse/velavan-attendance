@@ -131,25 +131,6 @@ export default function App() {
       if (s?.office_name) setOfficeName(s.office_name);
     }).catch(console.error);
 
-    // One-Time Initial Reset: Clean slate for daily attendance from scratch
-    const initialResetKey = 'velavan_attendance_reset_v1_scratch';
-    if (!localStorage.getItem(initialResetKey)) {
-      try {
-        localStorage.removeItem('velavan_attendance_logs_cache');
-        localStorage.removeItem('velavan_today_attendance');
-        localStorage.removeItem('velavan_realtime_punches');
-        localStorage.removeItem('velavan_dashboard_summary');
-        localStorage.removeItem('velavan_deleted_punches');
-        const bStr = localStorage.getItem('velavan_master_database_backup');
-        if (bStr) {
-          const b = JSON.parse(bStr);
-          b.attendance = [];
-          localStorage.setItem('velavan_master_database_backup', JSON.stringify(b));
-        }
-      } catch (e) {}
-      localStorage.setItem(initialResetKey, 'true');
-    }
-
     // Resilient Two-Way Real-time Sync between browser and server
     const runDisasterRecovery = async () => {
       try {
@@ -215,9 +196,12 @@ export default function App() {
             };
           });
 
+          // Safely merge server attendance with local attendance to NEVER wipe unsynced local records
+          const fullyMergedAtts = mergeAttendanceWithLocal(serverAtts);
+
           localStorage.setItem('velavan_master_database_backup', JSON.stringify({
             employees: mergedEmps,
-            attendance: serverAtts,
+            attendance: fullyMergedAtts,
             leave_requests: backupData?.leave_requests || []
           }));
           localStorage.setItem('velavan_employee_directory_list', JSON.stringify(mergedEmps));
