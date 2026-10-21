@@ -438,7 +438,8 @@
       "ot_hours": 0,
       "ot_minutes": 21,
       "role": "Graphic Designer",
-      "salary": "20000"
+      "salary": "20000",
+      "department": "Digital Marketing"
     },
     {
       "id": 4,
@@ -920,7 +921,8 @@
       "ot_hours": 0,
       "ot_minutes": 0,
       "role": "Graphic Designer",
-      "salary": "20000"
+      "salary": "20000",
+      "department": "Digital Marketing"
     },
     {
       "id": 36,
@@ -1429,7 +1431,8 @@
         "ot_hours": 0,
         "ot_minutes": 21,
         "role": "Graphic Designer",
-        "salary": "20000"
+        "salary": "20000",
+        "department": "Digital Marketing"
       },
       {
         "id": 4,
@@ -1911,7 +1914,8 @@
         "ot_hours": 0,
         "ot_minutes": 0,
         "role": "Graphic Designer",
-        "salary": "20000"
+        "salary": "20000",
+        "department": "Digital Marketing"
       },
       {
         "id": 36,
