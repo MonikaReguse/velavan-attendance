@@ -688,6 +688,8 @@ export default function OfficeFaceLockKiosk() {
                 todayPunches.map((item) => {
                   const isAbsent = item.status === 'absent' || item.holiday_type === 'own_leave';
                   const isWeeklyOff = item.status === 'weekly_off';
+                  const isGovtLeave = item.holiday_type === 'govt_holiday_leave' || item.status === 'holiday';
+                  const isGovtWorked = item.holiday_type === 'govt_holiday_worked';
                   const isOD = item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD';
                   const isLate = !isOD && !isAbsent && (item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00'));
                   const hasOt = item.ot_hours > 0;
@@ -744,6 +746,14 @@ export default function OfficeFaceLockKiosk() {
                           ) : isWeeklyOff ? (
                             <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
                               Weekly Off
+                            </span>
+                          ) : isGovtLeave ? (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                              Govt Holiday (Paid)
+                            </span>
+                          ) : isGovtWorked ? (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              Govt Holiday (2× Pay)
                             </span>
                           ) : isOD ? (
                             <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">

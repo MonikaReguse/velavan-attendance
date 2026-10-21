@@ -350,7 +350,7 @@ export default function AdminDashboard({ setActiveTab }) {
                 const isAbsent = rec.status === 'absent' || rec.holiday_type === 'own_leave';
                 const isWeeklyOff = rec.status === 'weekly_off';
                 const isGovtWorked = rec.holiday_type === 'govt_holiday_worked';
-                const isGovtLeave = rec.holiday_type === 'govt_holiday_leave';
+                const isGovtLeave = rec.holiday_type === 'govt_holiday_leave' || rec.status === 'holiday';
                 const isOD = rec.status === 'od' || rec.status === 'login_od' || rec.status === 'logout_od' || rec.clock_in === 'OD' || rec.clock_out === 'OD';
                 const isLate = !isOD && !isAbsent && (rec.status === 'late' || rec.is_late);
                 const isHalfDay = !isOD && !isAbsent && rec.status === 'half_day';

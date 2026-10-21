@@ -1651,6 +1651,15 @@ app.post('/api/attendance/manual', (req, res) => {
         finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
         otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
         finalStatus = status || 'od';
+      } else if (finalHolidayType === 'govt_holiday_leave' || status === 'holiday') {
+        finalStatus = 'holiday';
+        if (finalClockIn !== '--' && finalClockOut !== '--') {
+          totalHours = calculateHours(finalClockIn, finalClockOut);
+        } else {
+          totalHours = 8.5;
+        }
+        finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
+        otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
       } else if (finalClockIn !== '--' && finalClockOut === '--') {
         // PARTIAL ATTENDANCE: Morning Check-in Recorded, Evening Checkout Pending!
         totalHours = 0;
@@ -1828,6 +1837,15 @@ app.put('/api/attendance/:id', (req, res) => {
       finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
       otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
       finalStatus = status || 'od';
+    } else if (finalHolidayType === 'govt_holiday_leave' || status === 'holiday') {
+      finalStatus = 'holiday';
+      if (finalClockIn !== '--' && finalClockOut !== '--') {
+        totalHours = calculateHours(finalClockIn, finalClockOut);
+      } else {
+        totalHours = 8.5;
+      }
+      finalOtMinutes = (ot_minutes !== undefined && ot_minutes !== null && ot_minutes !== '') ? Number(ot_minutes) : 0;
+      otHours = finalOtMinutes > 0 ? Number((finalOtMinutes / 60).toFixed(2)) : 0;
     } else if (finalClockIn !== '--' && finalClockOut === '--') {
       // Partial Attendance
       totalHours = 0;
@@ -2052,13 +2070,13 @@ app.get('/api/reports/payroll-export', (req, res) => {
       let otMinutes = 0;
 
       for (const r of records) {
-        if (r.status === 'present') {
+        if (r.holiday_type === 'own_leave' || r.status === 'absent') {
+          absent++;
+        } else if (r.status === 'holiday' || r.holiday_type === 'govt_holiday_leave' || r.holiday_type === 'govt_holiday_worked' || r.status === 'present' || r.status === 'od' || r.status === 'login_od' || r.status === 'logout_od') {
           present++;
         } else if (r.status === 'late') {
           present++;
           late++;
-        } else if (r.status === 'absent') {
-          absent++;
         } else if (r.status === 'half_day') {
           halfday++;
         }

@@ -300,8 +300,30 @@ export default function ManualAttendanceUpdate() {
 
   // Live Overtime & Hours Calculator
   const calculatedStats = useMemo(() => {
-    if (status === 'absent' || (!clockIn && !clockOut) || (clockIn === '--' && clockOut === '--')) {
+    if (status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || (!clockIn && !clockOut) || (clockIn === '--' && clockOut === '--')) {
       return { totalHours: 0, otMinutes: 0, previewStatus: status, isPending: false };
+    }
+
+    // Government Holiday (Office Granted Leave) - Paid 1x day
+    if (holidayType === 'govt_holiday_leave' || status === 'holiday') {
+      const toMins = (t) => {
+        if (!t || t === '--' || t === 'OD') return 0;
+        const [h, m] = t.split(':').map(Number);
+        return (h || 0) * 60 + (m || 0);
+      };
+      let th = 8.5;
+      if (clockIn && clockOut && clockIn !== '--' && clockOut !== '--' && clockIn !== 'OD' && clockOut !== 'OD') {
+        const inM = toMins(clockIn);
+        const outM = toMins(clockOut);
+        let diffM = outM - inM;
+        if (diffM < 0) diffM += 24 * 60;
+        if (diffM > 0) th = Number((diffM / 60).toFixed(2));
+      }
+      let ot = 0;
+      if (customOtMinutes !== '' && !isNaN(Number(customOtMinutes))) {
+        ot = Number(customOtMinutes);
+      }
+      return { totalHours: th, otMinutes: ot, previewStatus: 'holiday', isPending: false };
     }
 
     // Partial Attendance: Morning Login Only (Checkout Pending)
@@ -367,7 +389,7 @@ export default function ManualAttendanceUpdate() {
     }
 
     return { totalHours, otMinutes, previewStatus, isPending: false };
-  }, [clockIn, clockOut, status, customOtMinutes, leaveCheckoutPending]);
+  }, [clockIn, clockOut, status, holidayType, customOtMinutes, leaveCheckoutPending]);
 
   // Handle Holiday / Leave Type selection
   const handleHolidayTypeChange = (newType) => {
@@ -378,9 +400,10 @@ export default function ManualAttendanceUpdate() {
       if (!clockOut || clockOut === '--' || clockOut === 'OD') setClockOut('18:00:00');
       setNotes('Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)');
     } else if (newType === 'govt_holiday_leave') {
-      setStatus('present');
-      setClockIn('--');
-      setClockOut('--');
+      setStatus('holiday');
+      if (!clockIn || clockIn === '--' || clockIn === 'OD') setClockIn('09:30:00');
+      if (!clockOut || clockOut === '--' || clockOut === 'OD') setClockOut('18:00:00');
+      setLeaveCheckoutPending(false);
       setCustomOtMinutes('0');
       setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
     } else if (newType === 'own_leave') {
@@ -391,6 +414,11 @@ export default function ManualAttendanceUpdate() {
       setNotes('Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)');
     } else if (newType === 'normal') {
       if (status === 'absent' && notes.includes('Employee Own Leave')) {
+        setStatus('present');
+        setClockIn('09:30:00');
+        setClockOut('18:00:00');
+        setNotes('HR manual attendance entry');
+      } else if (status === 'holiday') {
         setStatus('present');
         setClockIn('09:30:00');
         setClockOut('18:00:00');
@@ -419,11 +447,12 @@ export default function ManualAttendanceUpdate() {
       extraBonus = dailyRate;
       dayAmount = dailyRate * 2;
       explanation = 'Double Salary: 2 × Normal Daily Salary (1× Base Pay + 1× Extra Holiday Bonus)';
-    } else if (holidayType === 'govt_holiday_leave') {
+    } else if (holidayType === 'govt_holiday_leave' || status === 'holiday') {
       multiplier = 1;
       ruleName = 'Government Holiday – Office Granted Leave';
       ruleColor = 'blue';
       dayAmount = dailyRate;
+      deductionAmount = 0;
       explanation = 'Paid Government Holiday: 1 × Normal Daily Salary (Paid by Office, No Deduction)';
     } else if (holidayType === 'own_leave') {
       multiplier = 0;
@@ -496,9 +525,9 @@ export default function ManualAttendanceUpdate() {
       setNotes('Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)');
     } else if (presetName === 'govt_holiday_leave') {
       setHolidayType('govt_holiday_leave');
-      setStatus('present');
-      setClockIn('--');
-      setClockOut('--');
+      setStatus('holiday');
+      if (!clockIn || clockIn === '--' || clockIn === 'OD') setClockIn('09:30:00');
+      if (!clockOut || clockOut === '--' || clockOut === 'OD') setClockOut('18:00:00');
       setLeaveCheckoutPending(false);
       setCustomOtMinutes('0');
       setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
@@ -698,9 +727,11 @@ export default function ManualAttendanceUpdate() {
         finalStatus = 'absent';
       } else if (holidayType === 'govt_holiday_worked' && status === 'absent') {
         finalStatus = 'present';
+      } else if (holidayType === 'govt_holiday_leave' || status === 'holiday') {
+        finalStatus = 'holiday';
       }
 
-      const isCheckoutPendingNow = (leaveCheckoutPending || !clockOut || clockOut === '--' || clockOut === '') && (finalStatus !== 'absent' && finalStatus !== 'weekly_off' && holidayType !== 'own_leave');
+      const isCheckoutPendingNow = (leaveCheckoutPending || !clockOut || clockOut === '--' || clockOut === '') && (finalStatus !== 'absent' && finalStatus !== 'weekly_off' && holidayType !== 'own_leave' && holidayType !== 'govt_holiday_leave' && finalStatus !== 'holiday');
 
       const payload = {
         id: targetId,
@@ -710,7 +741,7 @@ export default function ManualAttendanceUpdate() {
         clock_out: (finalStatus === 'absent' || finalStatus === 'weekly_off' || holidayType === 'own_leave' || isCheckoutPendingNow) ? '--' : (clockOut || '--'),
         status: isCheckoutPendingNow ? (calculatedStats.previewStatus === 'late' ? 'late' : 'checked_in') : finalStatus,
         holiday_type: holidayType,
-        notes: trimmedNotes || (isODActive ? 'Client Site Visit' : (isCheckoutPendingNow ? 'Morning check-in (Checkout Pending)' : (isExistingCheckoutPending ? 'Shift completed (Evening checkout recorded)' : 'HR manual attendance entry'))),
+        notes: trimmedNotes || (isODActive ? 'Client Site Visit' : (isCheckoutPendingNow ? 'Morning check-in (Checkout Pending)' : (isExistingCheckoutPending ? 'Shift completed (Evening checkout recorded)' : (finalStatus === 'holiday' ? 'Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)' : 'HR manual attendance entry')))),
         ot_minutes: isCheckoutPendingNow ? 0 : (customOtMinutes !== '' ? Number(customOtMinutes) : calculatedStats.otMinutes),
         mode: isCheckoutPendingNow ? 'morning_login' : (isExistingCheckoutPending ? 'evening_logout' : 'full'),
         leave_checkout_pending: isCheckoutPendingNow
@@ -1347,6 +1378,15 @@ export default function ManualAttendanceUpdate() {
                       } else if (nextStatus === 'absent' || nextStatus === 'weekly_off') {
                         setClockIn('');
                         setClockOut('');
+                      } else if (nextStatus === 'holiday') {
+                        setHolidayType('govt_holiday_leave');
+                        if (!clockIn || clockIn === '--' || clockIn === 'OD') setClockIn('09:30:00');
+                        if (!clockOut || clockOut === '--' || clockOut === 'OD') setClockOut('18:00:00');
+                        setLeaveCheckoutPending(false);
+                        setCustomOtMinutes('0');
+                        setNotes('Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)');
+                      } else if (nextStatus === 'present' && holidayType === 'govt_holiday_leave') {
+                        setHolidayType('normal');
                       } else if ((clockIn === 'OD' || clockOut === 'OD') && nextStatus === 'present') {
                         if (clockIn === 'OD') setClockIn('09:30:00');
                         if (clockOut === 'OD') setClockOut('18:00:00');
@@ -1355,6 +1395,7 @@ export default function ManualAttendanceUpdate() {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-semibold focus:outline-none focus:border-[#8b0000]"
                   >
                     <option value="present">Present (On-Time)</option>
+                    <option value="holiday">Paid Holiday / Office Granted Leave</option>
                     <option value="od">On Duty (OD - Full Day)</option>
                     <option value="login_od">Login OD (Morning Duty)</option>
                     <option value="logout_od">Logout OD (Evening Duty)</option>
@@ -1427,7 +1468,7 @@ export default function ManualAttendanceUpdate() {
                     <input
                       type="time"
                       step="1"
-                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave'}
+                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave'}
                       value={clockIn}
                       onChange={(e) => setClockIn(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
@@ -1516,7 +1557,7 @@ export default function ManualAttendanceUpdate() {
                     <input
                       type="time"
                       step="1"
-                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || holidayType === 'govt_holiday_leave' || leaveCheckoutPending}
+                      disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave' || leaveCheckoutPending}
                       value={clockOut}
                       onChange={(e) => {
                         setClockOut(e.target.value);
@@ -1824,7 +1865,7 @@ export default function ManualAttendanceUpdate() {
                   const isLate = item.status === 'late';
                   const isHalfDay = item.status === 'half_day';
                   const isAbsent = item.status === 'absent';
-                  const isPendingCheckout = (!item.clock_out || item.clock_out === '--' || item.clock_out === '' || item.status === 'checked_in') && item.status !== 'absent' && item.status !== 'weekly_off' && item.holiday_type !== 'own_leave' && item.holiday_type !== 'govt_holiday_leave';
+                  const isPendingCheckout = (!item.clock_out || item.clock_out === '--' || item.clock_out === '' || item.status === 'checked_in') && item.status !== 'absent' && item.status !== 'weekly_off' && item.holiday_type !== 'own_leave' && item.holiday_type !== 'govt_holiday_leave' && item.status !== 'holiday';
                   const hasOt = item.ot_minutes > 0 || item.ot_hours > 0;
                   const otMins = item.ot_minutes || Math.round((item.ot_hours || 0) * 60);
 
@@ -1876,7 +1917,7 @@ export default function ManualAttendanceUpdate() {
                               Govt Holiday (2× Pay)
                             </span>
                           )}
-                          {item.holiday_type === 'govt_holiday_leave' && (
+                          {(item.holiday_type === 'govt_holiday_leave' || item.status === 'holiday') && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
                               Govt Holiday (Paid)
                             </span>
@@ -1895,6 +1936,10 @@ export default function ManualAttendanceUpdate() {
                           ) : item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD' ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                               {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
+                            </span>
+                          ) : item.status === 'holiday' || item.holiday_type === 'govt_holiday_leave' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                              Paid Holiday
                             </span>
                           ) : isAbsent ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">Absent</span>

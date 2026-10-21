@@ -279,7 +279,7 @@ export default function AttendanceReports() {
 
       records.forEach(r => {
         const isGovtWorked = r.holiday_type === 'govt_holiday_worked';
-        const isGovtLeave = r.holiday_type === 'govt_holiday_leave';
+        const isGovtLeave = r.holiday_type === 'govt_holiday_leave' || r.status === 'holiday';
         const isOwnLeave = r.holiday_type === 'own_leave';
 
         if (isGovtWorked) {

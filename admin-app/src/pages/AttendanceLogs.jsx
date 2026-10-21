@@ -366,7 +366,7 @@ export default function AttendanceLogs() {
                   const lateMins = getLateMinutes(log.clock_in);
                   const isHalfDay = log.status === 'half_day';
                   const isAbsent = log.status === 'absent';
-                  const isPendingCheckout = (!log.clock_out || log.clock_out === '--' || log.clock_out === '' || log.status === 'checked_in') && log.status !== 'absent' && log.status !== 'weekly_off' && log.holiday_type !== 'own_leave' && log.holiday_type !== 'govt_holiday_leave';
+                  const isPendingCheckout = (!log.clock_out || log.clock_out === '--' || log.clock_out === '' || log.status === 'checked_in') && log.status !== 'absent' && log.status !== 'weekly_off' && log.holiday_type !== 'own_leave' && log.holiday_type !== 'govt_holiday_leave' && log.status !== 'holiday';
                   const isOngoing = isPendingCheckout || (!log.clock_out || log.clock_out === log.clock_in);
 
                   return (
@@ -447,6 +447,14 @@ export default function AttendanceLogs() {
                         ) : log.status === 'od' || log.status === 'login_od' || log.status === 'logout_od' || log.clock_in === 'OD' || log.clock_out === 'OD' ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                             {log.status === 'login_od' ? 'Login OD' : log.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
+                          </span>
+                        ) : log.status === 'holiday' || log.holiday_type === 'govt_holiday_leave' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                            Paid Holiday
+                          </span>
+                        ) : log.holiday_type === 'govt_holiday_worked' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            Govt Holiday (2× Pay)
                           </span>
                         ) : (
                           <span
