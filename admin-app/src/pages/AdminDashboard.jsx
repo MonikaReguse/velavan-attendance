@@ -94,9 +94,6 @@ export default function AdminDashboard({ setActiveTab }) {
       } else {
         const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
         todayList = merged.filter(a => a.date === currentDay);
-        if (todayList.length > 0) {
-          syncLocalRecordsToServer(todayList).catch(() => {});
-        }
       }
       setTodayAttendance(todayList);
 

@@ -1474,7 +1474,7 @@ app.get('/api/attendance/today-summary', (req, res) => {
 // Attendance History & Reports Filter
 app.get('/api/attendance/history', (req, res) => {
   try {
-    const { startDate, endDate, department, emp_id, status, date, limit } = req.query;
+    const { startDate, endDate, department, emp_id, status, date, month, limit } = req.query;
 
     let query = `
       SELECT 
@@ -1497,6 +1497,10 @@ app.get('/api/attendance/history', (req, res) => {
     if (date) {
       query += ' AND a.date = ?';
       params.push(date);
+    }
+    if (month) {
+      query += ' AND a.date LIKE ?';
+      params.push(`${month}%`);
     }
     if (startDate) {
       query += ' AND a.date >= ?';
@@ -1545,7 +1549,9 @@ app.get('/api/attendance/record', (req, res) => {
         a.id, a.emp_id, a.date, a.clock_in, a.clock_out, a.total_hours,
         COALESCE(a.ot_hours, 0) as ot_hours,
         COALESCE(a.ot_minutes, 0) as ot_minutes,
-        a.status, a.punch_photo, a.method, a.notes,
+        a.status,
+        COALESCE(a.holiday_type, 'normal') as holiday_type,
+        a.punch_photo, a.method, a.notes,
         COALESCE(e.name, a.emp_id) as employee_name, 
         COALESCE(NULLIF(e.department, ''), e.role, 'Digital Marketing') as department, 
         COALESCE(e.role, 'Staff') as role, 
@@ -1571,17 +1577,20 @@ app.post('/api/attendance/manual', (req, res) => {
       return res.status(400).json({ error: 'Attendance date is required.' });
     }
 
+    const cleanEmpId = String(emp_id).trim();
+    const cleanDate = String(date).trim();
+
     // Auto-create basic employee entry if missing, ensuring FOREIGN KEY constraint NEVER fails
-    const emp = db.prepare('SELECT id, emp_id, name, avatar FROM employees WHERE emp_id = ?').get(emp_id);
+    const emp = db.prepare('SELECT id, emp_id, name, avatar FROM employees WHERE emp_id = ?').get(cleanEmpId);
     if (!emp) {
       try {
         db.prepare(`
           INSERT OR IGNORE INTO employees (emp_id, name, email, department, role, status)
           VALUES (?, ?, ?, ?, ?, 'active')
         `).run(
-          emp_id,
-          emp_id,
-          `${emp_id.toLowerCase()}@velavanproperties.com`,
+          cleanEmpId,
+          cleanEmpId,
+          `${cleanEmpId.toLowerCase()}@velavanproperties.com`,
           'Digital Marketing',
           'Staff'
         );
@@ -1594,11 +1603,13 @@ app.post('/api/attendance/manual', (req, res) => {
 
     // Wrap in a safe transaction: atomicity guarantees zero data loss on failure!
     const manualTx = db.transaction(() => {
-      // 1. Resolve existing record by (emp_id, date) first, or by id
-      let existing = db.prepare('SELECT * FROM attendance WHERE emp_id = ? AND date = ?').get(emp_id, date);
+      // 1. Resolve existing record strictly by (cleanEmpId, cleanDate)
+      let existing = db.prepare('SELECT * FROM attendance WHERE emp_id = ? AND date = ?').get(cleanEmpId, cleanDate);
       if (!existing && id && id !== '0' && id !== 'undefined' && id !== 'null') {
         const byId = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
-        if (byId) {
+        // Only use byId if it matches cleanEmpId and cleanDate!
+        // Never allow taking another employee's or date's record and overwriting it!
+        if (byId && byId.emp_id === cleanEmpId && byId.date === cleanDate) {
           existing = byId;
         }
       }
@@ -1607,11 +1618,12 @@ app.post('/api/attendance/manual', (req, res) => {
       const finalHolidayType = (holiday_type && String(holiday_type).trim()) ? String(holiday_type).trim() : (existing?.holiday_type || 'normal');
 
       // 2. Determine clean clock_in & clock_out
-      // PRESERVE MORNING TIME: If employee clocked in (via FaceLock or morning manual entry), preserve their morning clock_in!
       let finalClockIn = '--';
       if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
         if (clock_in && clock_in !== '--' && String(clock_in).trim() !== '' && String(clock_in).trim() !== 'null') {
           finalClockIn = String(clock_in).trim();
+        } else if (clock_in === '--' || clock_in === '') {
+          finalClockIn = '--';
         } else if (existing && existing.clock_in && existing.clock_in !== '--') {
           finalClockIn = existing.clock_in;
         } else {
@@ -1620,13 +1632,14 @@ app.post('/api/attendance/manual', (req, res) => {
       }
 
       // 3. Determine clean clock_out:
-      // If mode === 'morning_login' or leave_checkout_pending is true, explicitly leave checkout pending ('--')
       let finalClockOut = '--';
       if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
         if (mode === 'morning_login' || leave_checkout_pending === true) {
           finalClockOut = '--';
         } else if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
           finalClockOut = String(clock_out).trim();
+        } else if (clock_out === '--' || clock_out === '') {
+          finalClockOut = '--';
         } else if (existing && existing.clock_out && existing.clock_out !== '--') {
           finalClockOut = existing.clock_out;
         } else {
@@ -1703,21 +1716,31 @@ app.post('/api/attendance/manual', (req, res) => {
       const methodToKeep = (existing && existing.method) ? existing.method : 'manual';
       
       let finalNotes = (notes && notes.trim()) ? notes.trim() : (existing?.notes || 'HR manual adjustment');
-      if (finalClockOut === '--' && (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry')) {
+      if (finalHolidayType === 'govt_holiday_leave') {
+        if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+          finalNotes = 'Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)';
+        }
+      } else if (finalHolidayType === 'govt_holiday_worked') {
+        if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+          finalNotes = 'Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)';
+        }
+      } else if (finalHolidayType === 'own_leave') {
+        if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+          finalNotes = 'Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)';
+        }
+      } else if (finalClockOut === '--' && (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry')) {
         finalNotes = 'Morning check-in (Checkout Pending)';
       } else if (existing && existing.clock_out === '--' && finalClockOut !== '--' && (!notes || notes === 'Morning check-in (Checkout Pending)')) {
         finalNotes = 'Shift completed (Evening checkout recorded)';
       }
 
       if (existing) {
-        // UPDATE existing record safely without creating duplicates
+        // UPDATE existing record safely without affecting any other date or employee
         db.prepare(`
           UPDATE attendance
-          SET emp_id = ?, date = ?, clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?, holiday_type = ?
+          SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?, holiday_type = ?
           WHERE id = ?
         `).run(
-          emp_id,
-          date,
           finalClockIn,
           finalClockOut,
           totalHours,
@@ -1733,13 +1756,24 @@ app.post('/api/attendance/manual', (req, res) => {
         resultId = existing.id;
         isUpdate = true;
       } else {
-        // INSERT new record safely
+        // Atomic Upsert using ON CONFLICT (emp_id, date) to prevent ANY duplicate record failure
         const ins = db.prepare(`
           INSERT INTO attendance (emp_id, date, clock_in, clock_out, total_hours, ot_hours, ot_minutes, status, notes, method, punch_photo, holiday_type)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+          ON CONFLICT(emp_id, date) DO UPDATE SET
+            clock_in = excluded.clock_in,
+            clock_out = excluded.clock_out,
+            total_hours = excluded.total_hours,
+            ot_hours = excluded.ot_hours,
+            ot_minutes = excluded.ot_minutes,
+            status = excluded.status,
+            notes = excluded.notes,
+            method = excluded.method,
+            punch_photo = COALESCE(attendance.punch_photo, excluded.punch_photo),
+            holiday_type = excluded.holiday_type
         `).run(
-          emp_id,
-          date,
+          cleanEmpId,
+          cleanDate,
           finalClockIn,
           finalClockOut,
           totalHours,
@@ -1750,7 +1784,7 @@ app.post('/api/attendance/manual', (req, res) => {
           photoToKeep,
           finalHolidayType
         );
-        resultId = ins.lastInsertRowid;
+        resultId = ins.lastInsertRowid || db.prepare('SELECT id FROM attendance WHERE emp_id = ? AND date = ?').get(cleanEmpId, cleanDate)?.id;
         isUpdate = false;
       }
     });
@@ -1788,7 +1822,13 @@ app.put('/api/attendance/:id', (req, res) => {
     const { id } = req.params;
     const { emp_id, date, clock_in, clock_out, status, notes, ot_minutes, holiday_type, mode, leave_checkout_pending } = req.body;
     
-    const existing = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
+    let existing = null;
+    if (emp_id && date) {
+      existing = db.prepare('SELECT * FROM attendance WHERE emp_id = ? AND date = ?').get(String(emp_id).trim(), String(date).trim());
+    }
+    if (!existing && id && id !== '0' && id !== 'undefined' && id !== 'null') {
+      existing = db.prepare('SELECT * FROM attendance WHERE id = ?').get(id);
+    }
     if (!existing) {
       return res.status(404).json({ error: 'Attendance record not found' });
     }
@@ -1800,6 +1840,8 @@ app.put('/api/attendance/:id', (req, res) => {
     if (status !== 'absent' && status !== 'weekly_off' && finalHolidayType !== 'own_leave') {
       if (clock_in && clock_in !== '--' && String(clock_in).trim() !== '' && String(clock_in).trim() !== 'null') {
         finalClockIn = String(clock_in).trim();
+      } else if (clock_in === '--' || clock_in === '') {
+        finalClockIn = '--';
       } else if (existing.clock_in && existing.clock_in !== '--') {
         finalClockIn = existing.clock_in;
       } else {
@@ -1813,6 +1855,8 @@ app.put('/api/attendance/:id', (req, res) => {
         finalClockOut = '--';
       } else if (clock_out && clock_out !== '--' && String(clock_out).trim() !== '' && String(clock_out).trim() !== 'null') {
         finalClockOut = String(clock_out).trim();
+      } else if (clock_out === '--' || clock_out === '') {
+        finalClockOut = '--';
       } else if (existing.clock_out && existing.clock_out !== '--') {
         finalClockOut = existing.clock_out;
       } else {
@@ -1885,16 +1929,51 @@ app.put('/api/attendance/:id', (req, res) => {
 
     const photoToKeep = existing.punch_photo || null;
     const methodToKeep = existing.method || 'manual';
-    const finalNotes = (notes && notes.trim()) ? notes.trim() : (existing.notes || 'HR manual adjustment');
+    let finalNotes = (notes && notes.trim()) ? notes.trim() : (existing.notes || 'HR manual adjustment');
+    if (finalHolidayType === 'govt_holiday_leave') {
+      if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+        finalNotes = 'Government Holiday – Office Granted Leave (Paid Holiday: 1× Daily Pay)';
+      }
+    } else if (finalHolidayType === 'govt_holiday_worked') {
+      if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+        finalNotes = 'Government Holiday – Worked in Office (Double Salary Day: 2× Daily Pay)';
+      }
+    } else if (finalHolidayType === 'own_leave') {
+      if (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry') {
+        finalNotes = 'Employee Own Leave (Unpaid Leave: 1 Day Salary Deducted)';
+      }
+    } else if (finalClockOut === '--' && (!notes || notes === 'HR manual adjustment' || notes === 'HR manual attendance entry')) {
+      finalNotes = 'Morning check-in (Checkout Pending)';
+    } else if (existing.clock_out === '--' && finalClockOut !== '--' && (!notes || notes === 'Morning check-in (Checkout Pending)')) {
+      finalNotes = 'Shift completed (Evening checkout recorded)';
+    }
 
     db.prepare(`
       UPDATE attendance
       SET clock_in = ?, clock_out = ?, total_hours = ?, ot_hours = ?, ot_minutes = ?, status = ?, notes = ?, method = ?, punch_photo = ?, holiday_type = ?
       WHERE id = ?
-    `).run(finalClockIn, finalClockOut, totalHours, otHours, finalOtMinutes, finalStatus, finalNotes, methodToKeep, photoToKeep, finalHolidayType, id);
+    `).run(finalClockIn, finalClockOut, totalHours, otHours, finalOtMinutes, finalStatus, finalNotes, methodToKeep, photoToKeep, finalHolidayType, existing.id);
 
     saveDbSnapshot();
-    res.json({ success: true, updated: true, id });
+
+    const savedRecord = db.prepare(`
+      SELECT 
+        a.*, 
+        COALESCE(e.name, a.emp_id) as employee_name,
+        COALESCE(e.department, 'Digital Marketing') as department,
+        COALESCE(e.role, 'Staff') as role,
+        e.avatar
+      FROM attendance a
+      LEFT JOIN employees e ON a.emp_id = e.emp_id
+      WHERE a.id = ?
+    `).get(existing.id);
+
+    broadcastAttendanceUpdate({
+      type: 'attendance_updated',
+      data: savedRecord
+    });
+
+    res.json({ success: true, updated: true, id: existing.id, attendance: savedRecord });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

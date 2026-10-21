@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   CalendarCheck, 
   Calendar, 
@@ -46,7 +46,7 @@ export default function ManualAttendanceUpdate() {
     return [];
   });
   const [recentLogs, setRecentLogs] = useState(() => {
-    return getLocalAttendance().slice(0, 50);
+    return getLocalAttendance().slice(0, 100);
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -64,13 +64,120 @@ export default function ManualAttendanceUpdate() {
   const [customOtMinutes, setCustomOtMinutes] = useState('');
   const [notes, setNotes] = useState('HR manual attendance entry');
 
+  // Month filter for browsing and editing records across the entire month
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState(() => getTodayDateIST().slice(0, 7));
+  const [monthFilterMode, setMonthFilterMode] = useState('month'); // 'month' | 'all' | 'date'
+
+  // Safety tracking to prevent background timers/polling from wiping active edits
+  const currentLoadedRef = useRef({ empId: '', date: '' });
+  const isFormDirtyRef = useRef(false);
+  const initialFetchDoneRef = useRef(false);
+
   // Search filter for recent logs
   const [filterSearch, setFilterSearch] = useState('');
+
+  // Core function to safely populate form inputs for a specific employee & date
+  const populateFormForEmpAndDate = useCallback((empId, date, force = false, logsPool = null) => {
+    if (!empId || !date) return;
+    const currentKey = `${empId}_${date}`;
+    const loadedKey = `${currentLoadedRef.current.empId}_${currentLoadedRef.current.date}`;
+
+    // If already loaded for this empId & date and user has unsaved edits, do not overwrite unless forced
+    if (!force && loadedKey === currentKey) {
+      return;
+    }
+
+    currentLoadedRef.current = { empId, date };
+    isFormDirtyRef.current = false;
+
+    // Look for existing record in logsPool, recentLogs or local storage
+    const pool = logsPool || recentLogs;
+    const all = getLocalAttendance();
+    const existing = pool.find(a => a.emp_id === empId && a.date === date)
+      || all.find(a => a.emp_id === empId && a.date === date)
+      || null;
+
+    if (existing) {
+      setEditingId(existing.id || null);
+      const hasMorningOnly = existing.clock_in && existing.clock_in !== '--' && 
+        (!existing.clock_out || existing.clock_out === '--' || existing.clock_out === '') && 
+        existing.status !== 'absent' && existing.status !== 'weekly_off' && existing.holiday_type !== 'own_leave';
+
+      setClockIn(existing.clock_in && existing.clock_in !== '--' ? existing.clock_in : '09:30:00');
+
+      if (hasMorningOnly) {
+        setLeaveCheckoutPending(false);
+        setClockOut(getCurrentTime24());
+        setNotes('Shift completed (Evening checkout recorded)');
+      } else {
+        setClockOut(existing.clock_out && existing.clock_out !== '--' ? existing.clock_out : '18:00:00');
+        setLeaveCheckoutPending(false);
+        setNotes(existing.notes || 'HR manual adjustment');
+      }
+
+      setStatus(existing.status || 'present');
+      setHolidayType(existing.holiday_type || 'normal');
+      setCustomOtMinutes((existing.ot_minutes !== undefined && existing.ot_minutes !== null && Number(existing.ot_minutes) > 0) ? String(existing.ot_minutes) : '');
+    } else {
+      setEditingId(null);
+      let isSunday = false;
+      try {
+        const [y, m, d] = date.split('-').map(Number);
+        isSunday = new Date(y, m - 1, d).getDay() === 0;
+      } catch {}
+
+      if (isSunday) {
+        setClockIn('');
+        setClockOut('');
+        setLeaveCheckoutPending(false);
+        setStatus('weekly_off');
+        setHolidayType('normal');
+        setCustomOtMinutes('0');
+        setNotes('Weekly Off (Paid Sunday Rest)');
+      } else {
+        setClockIn('09:30:00');
+        setClockOut('18:00:00');
+        setLeaveCheckoutPending(false);
+        setStatus('present');
+        setHolidayType('normal');
+        setCustomOtMinutes('');
+        setNotes('HR manual attendance entry');
+      }
+    }
+  }, [recentLogs]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [empList, historyList] = await Promise.all([
+        api.getEmployees(),
+        api.getAttendanceHistory()
+      ]);
+      const cleanEmpList = empList || [];
+      setEmployees(cleanEmpList);
+      const cleanHistory = mergeAttendanceWithLocal(historyList || []);
+      setRecentLogs(cleanHistory);
+
+      // On initial startup completion, auto-populate the form if pristine
+      if (!initialFetchDoneRef.current && cleanEmpList.length > 0) {
+        initialFetchDoneRef.current = true;
+        const targetEmp = selectedEmpId || cleanEmpList[0].emp_id;
+        if (!selectedEmpId) setSelectedEmpId(targetEmp);
+        populateFormForEmpAndDate(targetEmp, selectedDate, true, cleanHistory);
+      }
+    } catch (err) {
+      console.error(err);
+      setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
+      setRecentLogs(getLocalAttendance());
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
 
-    // 1. Auto-refresh recent logs every 10 seconds
+    // 1. Auto-refresh recent logs every 10 seconds (never wipes active form inputs)
     const timer = setInterval(() => {
       loadData();
     }, 10000);
@@ -99,32 +206,13 @@ export default function ManualAttendanceUpdate() {
     };
   }, []);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [empList, historyList] = await Promise.all([
-        api.getEmployees(),
-        api.getAttendanceHistory()
-      ]);
-      const cleanEmpList = empList || [];
-      setEmployees(cleanEmpList);
-      const cleanHistory = mergeAttendanceWithLocal(historyList || []);
-      setRecentLogs(cleanHistory);
-    } catch (err) {
-      console.error(err);
-      setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
-      setRecentLogs(getLocalAttendance());
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Set default employee once employees load (only on initial startup)
   useEffect(() => {
     if (employees.length > 0 && !selectedEmpId) {
       setSelectedEmpId(employees[0].emp_id);
+      populateFormForEmpAndDate(employees[0].emp_id, selectedDate, true);
     }
-  }, [employees]);
+  }, [employees, selectedEmpId, selectedDate, populateFormForEmpAndDate]);
 
   // Find currently selected employee object
   const currentEmployee = useMemo(() => {
@@ -205,6 +293,24 @@ export default function ManualAttendanceUpdate() {
     return () => { isCancelled = true; };
   }, [selectedDate]);
 
+  // Actively query the persistent database whenever selectedMonthFilter changes
+  useEffect(() => {
+    if (!selectedMonthFilter) return;
+    let isCancelled = false;
+    api.getAttendanceHistory({ month: selectedMonthFilter })
+      .then(monthLogs => {
+        if (isCancelled || !Array.isArray(monthLogs)) return;
+        mergeAttendanceWithLocal(monthLogs);
+        setRecentLogs(prev => {
+          const map = new Map(prev.map(p => [`${p.emp_id}_${p.date}`, p]));
+          monthLogs.forEach(d => map.set(`${d.emp_id}_${d.date}`, d));
+          return Array.from(map.values()).sort((a,b) => b.date.localeCompare(a.date));
+        });
+      })
+      .catch(console.error);
+    return () => { isCancelled = true; };
+  }, [selectedMonthFilter]);
+
   // Helper to determine if selected employee has morning check-in recorded with checkout pending
   const isExistingCheckoutPending = useMemo(() => {
     if (!existingRecord) return false;
@@ -214,72 +320,29 @@ export default function ManualAttendanceUpdate() {
     return hasValidIn && noValidOut && notAbs;
   }, [existingRecord]);
 
-  // Reactive form sync: Populate the form inputs with the database record for selected employee & date
-  // (Only applies when user is not manually editing another row by ID)
+  // Form sync strictly triggers when selectedEmpId or selectedDate changes
   useEffect(() => {
-    if (editingId) return;
     if (!selectedEmpId || !selectedDate) return;
-
-    if (existingRecord) {
-      const hasMorningOnly = existingRecord.clock_in && existingRecord.clock_in !== '--' && (!existingRecord.clock_out || existingRecord.clock_out === '--' || existingRecord.clock_out === '') && existingRecord.status !== 'absent' && existingRecord.status !== 'weekly_off' && existingRecord.holiday_type !== 'own_leave';
-
-      setClockIn(existingRecord.clock_in && existingRecord.clock_in !== '--' ? existingRecord.clock_in : '09:30:00');
-      
-      if (hasMorningOnly) {
-        // Morning login already done! In the evening, the admin wants to enter logout time.
-        // Default leaveCheckoutPending to false and prefill clockOut with current IST time or 18:00:00.
-        setLeaveCheckoutPending(false);
-        setClockOut(getCurrentTime24());
-        setNotes('Shift completed (Evening checkout recorded)');
-      } else {
-        setClockOut(existingRecord.clock_out && existingRecord.clock_out !== '--' ? existingRecord.clock_out : '18:00:00');
-        setLeaveCheckoutPending(false);
-        setNotes(existingRecord.notes || 'HR manual adjustment');
-      }
-
-      setStatus(existingRecord.status || 'present');
-      setHolidayType(existingRecord.holiday_type || 'normal');
-      setCustomOtMinutes((existingRecord.ot_minutes !== undefined && existingRecord.ot_minutes !== null && Number(existingRecord.ot_minutes) > 0) ? String(existingRecord.ot_minutes) : '');
-    } else {
-      let isSunday = false;
-      try {
-        const [y, m, d] = selectedDate.split('-').map(Number);
-        isSunday = new Date(y, m - 1, d).getDay() === 0;
-      } catch {}
-
-      if (isSunday) {
-        setClockIn('');
-        setClockOut('');
-        setLeaveCheckoutPending(false);
-        setStatus('weekly_off');
-        setHolidayType('normal');
-        setCustomOtMinutes('0');
-        setNotes('Weekly Off (Paid Sunday Rest)');
-      } else {
-        setClockIn('09:30:00');
-        setClockOut('18:00:00');
-        setLeaveCheckoutPending(false);
-        setStatus('present');
-        setHolidayType('normal');
-        setCustomOtMinutes('');
-        setNotes('HR manual attendance entry');
-      }
-    }
-  }, [selectedEmpId, selectedDate, existingRecord, editingId]);
+    populateFormForEmpAndDate(selectedEmpId, selectedDate, false);
+  }, [selectedEmpId, selectedDate, populateFormForEmpAndDate]);
 
   // Handle switching employee in dropdown
   const handleSelectEmployee = (empId) => {
     if (!empId) return;
     setSelectedEmpId(empId);
-    setEditingId(null);
     setFeedback(null);
+    populateFormForEmpAndDate(empId, selectedDate, true);
   };
 
   // Handle switching date - automatically detects day and syncs records
   const handleSelectDate = (newDate) => {
+    if (!newDate) return;
     setSelectedDate(newDate);
-    setEditingId(null);
     setFeedback(null);
+    if (newDate.slice(0, 7) !== selectedMonthFilter) {
+      setSelectedMonthFilter(newDate.slice(0, 7));
+    }
+    populateFormForEmpAndDate(selectedEmpId, newDate, true);
   };
 
   // Swift Navigation: Advance to next sequential employee in list
@@ -393,6 +456,7 @@ export default function ManualAttendanceUpdate() {
 
   // Handle Holiday / Leave Type selection
   const handleHolidayTypeChange = (newType) => {
+    isFormDirtyRef.current = true;
     setHolidayType(newType);
     if (newType === 'govt_holiday_worked') {
       setStatus('present');
@@ -492,6 +556,7 @@ export default function ManualAttendanceUpdate() {
 
   // Quick Preset Handlers
   const applyPreset = (presetName) => {
+    isFormDirtyRef.current = true;
     if (presetName === 'morning_login') {
       setHolidayType('normal');
       setClockIn('09:30:00');
@@ -609,9 +674,15 @@ export default function ManualAttendanceUpdate() {
   // Explicitly enter Edit Mode for a specific record
   const handleEditRecord = (record) => {
     if (!record) return;
-    setEditingId(record.id);
     setSelectedEmpId(record.emp_id);
     setSelectedDate(record.date);
+    if (record.date && record.date.slice(0, 7) !== selectedMonthFilter) {
+      setSelectedMonthFilter(record.date.slice(0, 7));
+    }
+    setEditingId(record.id || null);
+    currentLoadedRef.current = { empId: record.emp_id, date: record.date };
+    isFormDirtyRef.current = false;
+
     setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
 
     const isPending = (!record.clock_out || record.clock_out === '--' || record.clock_out === '') && record.status !== 'absent' && record.status !== 'weekly_off' && record.holiday_type !== 'own_leave';
@@ -630,7 +701,7 @@ export default function ManualAttendanceUpdate() {
       setNotes(record.notes || 'HR manual adjustment');
       setFeedback({
         type: 'success',
-        message: `Loaded record #${record.id} for ${record.employee_name || record.emp_id}. Make changes and click Update.`
+        message: `Loaded record #${record.id} for ${record.employee_name || record.emp_id} on ${record.date}. Make changes and click Update.`
       });
     }
 
@@ -643,9 +714,15 @@ export default function ManualAttendanceUpdate() {
   // Dedicated 1-click handler to log evening logout from the recent logs list
   const handleEnterLogout = (record) => {
     if (!record) return;
-    setEditingId(record.id);
     setSelectedEmpId(record.emp_id);
     setSelectedDate(record.date);
+    if (record.date && record.date.slice(0, 7) !== selectedMonthFilter) {
+      setSelectedMonthFilter(record.date.slice(0, 7));
+    }
+    setEditingId(record.id || null);
+    currentLoadedRef.current = { empId: record.emp_id, date: record.date };
+    isFormDirtyRef.current = true;
+
     setClockIn((record.clock_in && record.clock_in !== '--') ? record.clock_in : '09:30:00');
     setClockOut(getCurrentTime24());
     setLeaveCheckoutPending(false);
@@ -662,6 +739,8 @@ export default function ManualAttendanceUpdate() {
   // Reset form to blank new entry mode
   const handleResetForm = () => {
     setEditingId(null);
+    currentLoadedRef.current = { empId: selectedEmpId, date: selectedDate };
+    isFormDirtyRef.current = false;
     setClockIn('09:30:00');
     setClockOut('18:00:00');
     setLeaveCheckoutPending(false);
@@ -679,6 +758,7 @@ export default function ManualAttendanceUpdate() {
     const unmarked = employees.find(e => !all.some(a => a.emp_id === e.emp_id && a.date === selectedDate));
     if (unmarked) {
       setSelectedEmpId(unmarked.emp_id);
+      currentLoadedRef.current = { empId: unmarked.emp_id, date: selectedDate };
     }
   };
 
@@ -750,8 +830,9 @@ export default function ManualAttendanceUpdate() {
       const res = await api.recordManualAttendance(payload);
 
       if (res.success) {
-        const finalId = res.id || targetId || undefined;
+        const finalId = res.id || res.attendance?.id || targetId || undefined;
         const savedPunch = {
+          ...(res.attendance || {}),
           ...payload,
           id: finalId,
           employee_name: currentEmployee?.name || selectedEmpId,
@@ -767,11 +848,15 @@ export default function ManualAttendanceUpdate() {
         };
         savePunchLocally(savedPunch);
 
-        const empName = currentEmployee?.name || selectedEmpId;
-        const wasEditing = !!editingId;
+        // Keep editingId on the saved record so admin can continue fine-tuning or see it's saved
+        if (finalId) {
+          setEditingId(finalId);
+        }
+        currentLoadedRef.current = { empId: selectedEmpId, date: selectedDate };
+        isFormDirtyRef.current = false;
 
-        // CRITICAL FIX: Always reset editingId to null! Never trap the user in edit mode!
-        setEditingId(null);
+        const empName = currentEmployee?.name || selectedEmpId;
+        const wasEditing = !!targetId;
 
         let successMsg = wasEditing
           ? `Attendance successfully updated for ${empName} on ${selectedDate}!`
@@ -788,10 +873,23 @@ export default function ManualAttendanceUpdate() {
           message: successMsg
         });
 
-        // Refresh recent logs from database
-        const updatedLogs = await api.getAttendanceHistory();
-        const merged = mergeAttendanceWithLocal(updatedLogs || [savedPunch]);
-        setRecentLogs(merged);
+        // Update recentLogs state immediately so UI updates without waiting for server roundtrip
+        setRecentLogs(prev => {
+          const map = new Map(prev.map(p => [`${p.emp_id}_${p.date}`, p]));
+          map.set(`${savedPunch.emp_id}_${savedPunch.date}`, savedPunch);
+          return Array.from(map.values()).sort((a,b) => {
+            if (b.date !== a.date) return b.date.localeCompare(a.date);
+            return (b.clock_in || '').localeCompare(a.clock_in || '');
+          });
+        });
+
+        // Fetch fresh history asynchronously in the background
+        api.getAttendanceHistory().then(updatedLogs => {
+          if (Array.isArray(updatedLogs)) {
+            const merged = mergeAttendanceWithLocal(updatedLogs);
+            setRecentLogs(merged);
+          }
+        }).catch(() => {});
 
         // Intentionally keep user on currently saved employee with clear success confirmation!
         // User can click "Next Employee ▶" whenever they wish to advance.
@@ -839,17 +937,28 @@ export default function ManualAttendanceUpdate() {
     }
   };
 
-  // Filtered recent logs
+  // Filtered recent logs with Month Filter + Search
   const filteredLogs = useMemo(() => {
-    if (!filterSearch.trim()) return recentLogs;
+    let list = recentLogs;
+
+    // Filter by month or mode
+    if (monthFilterMode === 'month' && selectedMonthFilter) {
+      list = list.filter(l => l.date && l.date.startsWith(selectedMonthFilter));
+    } else if (monthFilterMode === 'date' && selectedDate) {
+      list = list.filter(l => l.date === selectedDate);
+    }
+
+    if (!filterSearch.trim()) return list;
     const q = filterSearch.toLowerCase();
-    return recentLogs.filter(l => 
+    return list.filter(l => 
       (l.employee_name && l.employee_name.toLowerCase().includes(q)) ||
       (l.emp_id && l.emp_id.toLowerCase().includes(q)) ||
       (l.date && l.date.includes(q)) ||
-      (l.status && l.status.toLowerCase().includes(q))
+      (l.status && l.status.toLowerCase().includes(q)) ||
+      (l.holiday_type && l.holiday_type.toLowerCase().includes(q)) ||
+      (l.notes && l.notes.toLowerCase().includes(q))
     );
-  }, [recentLogs, filterSearch]);
+  }, [recentLogs, filterSearch, selectedMonthFilter, monthFilterMode, selectedDate]);
 
   const isCurrentMarked = markedEmpIdsForSelectedDate.has(selectedEmpId);
   const isOD = status === 'od' || status === 'login_od' || status === 'logout_od' || clockIn === 'OD' || clockOut === 'OD';
@@ -1361,6 +1470,7 @@ export default function ManualAttendanceUpdate() {
                   <select
                     value={status}
                     onChange={(e) => {
+                      isFormDirtyRef.current = true;
                       const nextStatus = e.target.value;
                       setStatus(nextStatus);
                       if (nextStatus === 'od') {
@@ -1470,7 +1580,10 @@ export default function ManualAttendanceUpdate() {
                       step="1"
                       disabled={status === 'absent' || status === 'weekly_off' || holidayType === 'own_leave'}
                       value={clockIn}
-                      onChange={(e) => setClockIn(e.target.value)}
+                      onChange={(e) => {
+                        setClockIn(e.target.value);
+                        isFormDirtyRef.current = true;
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
                     />
                   )}
@@ -1561,6 +1674,7 @@ export default function ManualAttendanceUpdate() {
                       value={clockOut}
                       onChange={(e) => {
                         setClockOut(e.target.value);
+                        isFormDirtyRef.current = true;
                         if (e.target.value) setLeaveCheckoutPending(false);
                       }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000] disabled:opacity-40"
@@ -1692,7 +1806,10 @@ export default function ManualAttendanceUpdate() {
                   type="number"
                   placeholder="e.g. 25"
                   value={customOtMinutes}
-                  onChange={(e) => setCustomOtMinutes(e.target.value)}
+                  onChange={(e) => {
+                    setCustomOtMinutes(e.target.value);
+                    isFormDirtyRef.current = true;
+                  }}
                   className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-[#8b0000]"
                 />
               </div>
@@ -1757,7 +1874,10 @@ export default function ManualAttendanceUpdate() {
                 required={isOD}
                 placeholder={isOD ? 'Enter specific OD reason (e.g. Client Site Visit, Registrar Office, Meeting)' : 'e.g. Regular shift / Client site visit / Management approved'}
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => {
+                  setNotes(e.target.value);
+                  isFormDirtyRef.current = true;
+                }}
                 className={`w-full px-3.5 py-2.5 rounded-xl text-xs focus:outline-none transition-all ${
                   isOD
                     ? 'bg-white border-2 border-indigo-400 text-indigo-950 font-semibold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-200 shadow-xs placeholder-indigo-300'
@@ -1824,11 +1944,11 @@ export default function ManualAttendanceUpdate() {
         {/* RIGHT COLUMN: RECENT AUDIT LIST WITH 1-CLICK EDIT (5 cols) */}
         {/* ========================================================== */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col h-[680px]">
+          <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col h-[740px]">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-900 text-sm">Recent Attendance Records</h3>
-                <p className="text-[11px] text-slate-500">Click ✏️ Edit to modify any record.</p>
+                <h3 className="font-bold text-slate-900 text-sm">Monthly Attendance Register & Audit</h3>
+                <p className="text-[11px] text-slate-500">Browse any date in the month. Click ✏️ Edit to modify.</p>
               </div>
               <button
                 type="button"
@@ -1840,16 +1960,74 @@ export default function ManualAttendanceUpdate() {
               </button>
             </div>
 
-            {/* Quick Search inside logs */}
-            <div className="my-2.5 relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search name, ID or date..."
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#8b0000]"
-              />
+            {/* Monthly Audit Filter Controls */}
+            <div className="pt-2.5 pb-2 space-y-2 border-b border-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-1.5 flex-1">
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Month:</label>
+                  <input
+                    type="month"
+                    value={selectedMonthFilter}
+                    onChange={(e) => {
+                      setSelectedMonthFilter(e.target.value);
+                      setMonthFilterMode('month');
+                    }}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#8b0000]"
+                  />
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-red-50 text-[#8b0000] rounded-full border border-red-200 shrink-0">
+                  {filteredLogs.length} Records
+                </span>
+              </div>
+
+              {/* Mode filter pills */}
+              <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                <button
+                  type="button"
+                  onClick={() => setMonthFilterMode('month')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                    monthFilterMode === 'month'
+                      ? 'bg-red-50 text-[#8b0000] border border-red-200 font-extrabold'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  📅 Month ({selectedMonthFilter})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMonthFilterMode('date')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                    monthFilterMode === 'date'
+                      ? 'bg-red-50 text-[#8b0000] border border-red-200 font-extrabold'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  🗓️ Day ({selectedDate})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMonthFilterMode('all')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                    monthFilterMode === 'all'
+                      ? 'bg-red-50 text-[#8b0000] border border-red-200 font-extrabold'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  🌐 All Loaded Logs
+                </button>
+              </div>
+
+              {/* Quick Search inside logs */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search name, ID, date, status, notes..."
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#8b0000]"
+                />
+              </div>
             </div>
 
             {/* List */}
