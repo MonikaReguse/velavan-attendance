@@ -38,27 +38,41 @@ export const getLocalAttendance = () => {
         if (!existing) {
           recordsMap.set(key, item);
         } else {
-          // Keep the richer record (e.g. with clock_out, photo or total_hours)
-          const merged = { ...existing, ...item };
-          if (existing.clock_out && existing.clock_out !== '--' && (!item.clock_out || item.clock_out === '--')) {
-            merged.clock_out = existing.clock_out;
+          // If latest item is marked absent, respect absent state completely
+          if (item.status === 'absent' || item.holiday_type === 'own_leave') {
+            recordsMap.set(key, {
+              ...existing,
+              ...item,
+              clock_in: '--',
+              clock_out: '--',
+              total_hours: 0,
+              ot_hours: 0,
+              ot_minutes: 0,
+              status: 'absent'
+            });
+          } else {
+            // Keep the richer record (e.g. with clock_out, photo or total_hours)
+            const merged = { ...existing, ...item };
+            if (existing.clock_out && existing.clock_out !== '--' && (!item.clock_out || item.clock_out === '--')) {
+              merged.clock_out = existing.clock_out;
+            }
+            if (existing.clock_in && existing.clock_in !== '--' && (!item.clock_in || item.clock_in === '--')) {
+              merged.clock_in = existing.clock_in;
+            }
+            if (existing.total_hours && (!item.total_hours || item.total_hours === 0)) {
+              merged.total_hours = existing.total_hours;
+            }
+            if (existing.ot_hours && (!item.ot_hours || item.ot_hours === 0)) {
+              merged.ot_hours = existing.ot_hours;
+            }
+            if (existing.ot_minutes && (!item.ot_minutes || item.ot_minutes === 0)) {
+              merged.ot_minutes = existing.ot_minutes;
+            }
+            if (existing.punch_photo && !item.punch_photo) {
+              merged.punch_photo = existing.punch_photo;
+            }
+            recordsMap.set(key, merged);
           }
-          if (existing.clock_in && existing.clock_in !== '--' && (!item.clock_in || item.clock_in === '--')) {
-            merged.clock_in = existing.clock_in;
-          }
-          if (existing.total_hours && (!item.total_hours || item.total_hours === 0)) {
-            merged.total_hours = existing.total_hours;
-          }
-          if (existing.ot_hours && (!item.ot_hours || item.ot_hours === 0)) {
-            merged.ot_hours = existing.ot_hours;
-          }
-          if (existing.ot_minutes && (!item.ot_minutes || item.ot_minutes === 0)) {
-            merged.ot_minutes = existing.ot_minutes;
-          }
-          if (existing.punch_photo && !item.punch_photo) {
-            merged.punch_photo = existing.punch_photo;
-          }
-          recordsMap.set(key, merged);
         }
       }
     }
@@ -167,6 +181,20 @@ export const savePunchLocally = (punch) => {
 
   // Helper to merge punch into an existing record in array
   const mergeIntoRecord = (prev, next) => {
+    if (!prev) return next;
+    const isAbsent = next.status === 'absent' || next.holiday_type === 'own_leave';
+    if (isAbsent) {
+      return {
+        ...prev,
+        ...next,
+        clock_in: '--',
+        clock_out: '--',
+        total_hours: 0,
+        ot_hours: 0,
+        ot_minutes: 0,
+        status: 'absent'
+      };
+    }
     const merged = { ...prev, ...next };
     if (!merged.punch_photo && prev.punch_photo) merged.punch_photo = prev.punch_photo;
     if (prev.method === 'facelock' && (!next.method || next.method === 'manual')) merged.method = 'facelock';
@@ -303,18 +331,31 @@ export const mergeAttendanceWithLocal = (serverRecords = []) => {
     if (!existing) {
       map.set(key, s);
     } else {
-      // Merge authoritative server record with any richer local fields (e.g. biometric photo)
-      const mergedRec = { ...existing, ...s };
-      if (!mergedRec.punch_photo && existing.punch_photo) {
-        mergedRec.punch_photo = existing.punch_photo;
+      if (s.status === 'absent' || s.holiday_type === 'own_leave') {
+        map.set(key, {
+          ...existing,
+          ...s,
+          clock_in: '--',
+          clock_out: '--',
+          total_hours: 0,
+          ot_hours: 0,
+          ot_minutes: 0,
+          status: 'absent'
+        });
+      } else {
+        // Merge authoritative server record with any richer local fields (e.g. biometric photo)
+        const mergedRec = { ...existing, ...s };
+        if (!mergedRec.punch_photo && existing.punch_photo) {
+          mergedRec.punch_photo = existing.punch_photo;
+        }
+        if ((!mergedRec.clock_out || mergedRec.clock_out === '--') && existing.clock_out && existing.clock_out !== '--' && s.status !== 'checked_in') {
+          mergedRec.clock_out = existing.clock_out;
+        }
+        if ((!mergedRec.clock_in || mergedRec.clock_in === '--') && existing.clock_in && existing.clock_in !== '--') {
+          mergedRec.clock_in = existing.clock_in;
+        }
+        map.set(key, mergedRec);
       }
-      if ((!mergedRec.clock_out || mergedRec.clock_out === '--') && existing.clock_out && existing.clock_out !== '--') {
-        mergedRec.clock_out = existing.clock_out;
-      }
-      if ((!mergedRec.clock_in || mergedRec.clock_in === '--') && existing.clock_in && existing.clock_in !== '--') {
-        mergedRec.clock_in = existing.clock_in;
-      }
-      map.set(key, mergedRec);
     }
   }
 

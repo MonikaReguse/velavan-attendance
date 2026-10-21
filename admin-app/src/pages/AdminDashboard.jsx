@@ -79,18 +79,21 @@ export default function AdminDashboard({ setActiveTab }) {
       setTodayAttendance(todayList);
 
       const totalEmp = (empRes && empRes.length > 0) ? empRes.length : (employees.length || 9);
-      const presentToday = todayList.length;
-      const lateToday = todayList.filter(a => a.status === 'late' || a.is_late).length;
-      const absentToday = Math.max(0, totalEmp - presentToday);
+      const presentToday = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
+      const explicitAbsentToday = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
+      const lateToday = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
+      const unaccountedToday = Math.max(0, totalEmp - presentToday - explicitAbsentToday);
+      const absentToday = explicitAbsentToday + unaccountedToday;
 
       const calculatedSummary = {
         total_employees: totalEmp,
-        present_today: presentToday,
-        late_today: lateToday,
-        absent_today: absentToday,
-        ...sumRes
+        present_today: typeof sumRes?.present_today === 'number' ? sumRes.present_today : presentToday,
+        late_today: typeof sumRes?.late_today === 'number' ? sumRes.late_today : lateToday,
+        absent_today: typeof sumRes?.absent_today === 'number' ? sumRes.absent_today : absentToday,
+        explicit_absent_today: typeof sumRes?.explicit_absent_today === 'number' ? sumRes.explicit_absent_today : explicitAbsentToday,
+        ...(sumRes || {})
       };
-      if (sumRes && sumRes.present_today >= presentToday) {
+      if (typeof sumRes?.present_today === 'number') {
         calculatedSummary.present_today = sumRes.present_today;
         calculatedSummary.absent_today = sumRes.absent_today;
       } else {
@@ -275,7 +278,9 @@ export default function AdminDashboard({ setActiveTab }) {
             </div>
           </div>
           <div className="text-3xl font-black text-rose-600">{summary?.absent_today || 0}</div>
-          <span className="text-[11px] text-rose-600 font-semibold">Unaccounted staff</span>
+          <span className="text-[11px] text-rose-600 font-semibold">
+            {summary?.explicit_absent_today > 0 ? `${summary.explicit_absent_today} marked absent` : 'Unaccounted staff'}
+          </span>
         </div>
 
         {/* 4. Late Arrivals */}
@@ -322,22 +327,31 @@ export default function AdminDashboard({ setActiveTab }) {
                 const displayRole = empInfo.role || rec.role || 'Staff';
                 const displayAvatar = resolvePhotoUrl(empInfo.avatar || rec.avatar || rec.punch_photo, displayName);
 
+                const isAbsent = rec.status === 'absent' || rec.holiday_type === 'own_leave';
+                const isWeeklyOff = rec.status === 'weekly_off';
+                const isGovtWorked = rec.holiday_type === 'govt_holiday_worked';
+                const isGovtLeave = rec.holiday_type === 'govt_holiday_leave';
                 const isOD = rec.status === 'od' || rec.status === 'login_od' || rec.status === 'logout_od' || rec.clock_in === 'OD' || rec.clock_out === 'OD';
-                const isLate = !isOD && rec.status === 'late';
-                const isHalfDay = !isOD && rec.status === 'half_day';
-                const isOngoing = !rec.clock_out || rec.clock_out === rec.clock_in;
+                const isLate = !isOD && !isAbsent && (rec.status === 'late' || rec.is_late);
+                const isHalfDay = !isOD && !isAbsent && rec.status === 'half_day';
+                const isPendingCheckout = (!rec.clock_out || rec.clock_out === '--' || rec.status === 'checked_in') && !isAbsent && !isWeeklyOff && !isGovtLeave;
+                const isOngoing = isPendingCheckout || (!rec.clock_out || rec.clock_out === rec.clock_in);
 
                 return (
-                  <div key={rec.id} className="p-3.5 hover:bg-slate-50 transition-colors flex items-center justify-between">
+                  <div key={rec.id} className={`p-3.5 transition-colors flex items-center justify-between ${
+                    isAbsent ? 'bg-rose-50/50 hover:bg-rose-50/80 border-l-4 border-rose-500' : 'hover:bg-slate-50'
+                  }`}>
                     <div className="flex items-center space-x-3">
                       <div className="relative">
                         <img
                           src={displayAvatar}
                           alt={displayName}
                           onError={(e) => handleImageError(e, displayName)}
-                          className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100"
+                          className={`w-10 h-10 rounded-full object-cover border bg-slate-100 ${
+                            isAbsent ? 'border-rose-300 ring-2 ring-rose-200' : 'border-slate-200'
+                          }`}
                         />
-                        {rec.method === 'facelock' && (
+                        {rec.method === 'facelock' && !isAbsent && (
                           <div
                             className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full p-0.5 border border-white"
                             title="Verified with FaceLock"
@@ -348,7 +362,7 @@ export default function AdminDashboard({ setActiveTab }) {
                       </div>
                       <div>
                         <div className="flex items-center space-x-2">
-                          <h4 className="text-xs font-bold text-slate-800">{displayName}</h4>
+                          <h4 className={`text-xs font-bold ${isAbsent ? 'text-rose-900' : 'text-slate-800'}`}>{displayName}</h4>
                           <span className="text-[10px] text-slate-400 font-mono">({rec.emp_id})</span>
                         </div>
                         <p className="text-[11px] text-slate-500">
@@ -359,17 +373,37 @@ export default function AdminDashboard({ setActiveTab }) {
 
                     <div className="flex items-center space-x-4 text-right">
                       <div>
-                        <div className="text-xs font-semibold text-slate-700 font-mono">
-                          Login: {rec.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_in)}
-                          {!isOngoing && rec.clock_out && (
-                            <span className="text-slate-400 ml-1.5 font-normal">
-                              | Logout: {rec.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_out)}
+                        <div className="text-xs font-semibold font-mono">
+                          {isAbsent ? (
+                            <span className="text-rose-700 font-bold">Absent (Loss of Pay)</span>
+                          ) : isWeeklyOff ? (
+                            <span className="text-purple-700 font-bold">Weekly Off</span>
+                          ) : isGovtLeave ? (
+                            <span className="text-blue-700 font-bold">Govt Holiday (Granted)</span>
+                          ) : (
+                            <span className="text-slate-700">
+                              Login: {rec.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_in)}
+                              {!isPendingCheckout && rec.clock_out && rec.clock_out !== '--' && (
+                                <span className="text-slate-400 ml-1.5 font-normal">
+                                  | Logout: {rec.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(rec.clock_out)}
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          {rec.total_hours > 0 ? (
-                            <span>
+                        <div className="text-[10px]">
+                          {isAbsent ? (
+                            <span className="text-rose-600 font-medium">
+                              {rec.notes && rec.notes !== 'HR manual attendance entry' && rec.notes !== 'HR manual entry' && rec.notes !== 'HR manual adjustment'
+                                ? rec.notes
+                                : 'Marked absent by HR (Loss of pay)'}
+                            </span>
+                          ) : isWeeklyOff ? (
+                            <span className="text-purple-500 font-medium">Paid Sunday Rest</span>
+                          ) : isGovtLeave ? (
+                            <span className="text-blue-500 font-medium">Office Granted Paid Holiday</span>
+                          ) : rec.total_hours > 0 ? (
+                            <span className="text-slate-500">
                               {rec.total_hours} hrs worked
                               {(rec.ot_minutes > 0 || rec.ot_hours > 0) && (
                                 <span className="text-amber-600 font-bold ml-1">
@@ -377,16 +411,31 @@ export default function AdminDashboard({ setActiveTab }) {
                                 </span>
                               )}
                             </span>
+                          ) : isPendingCheckout ? (
+                            <span className="text-amber-600 font-bold inline-flex items-center space-x-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mr-1"></span>
+                              Shift in progress (Checkout pending)
+                            </span>
                           ) : (
-                            <span className="text-emerald-600 font-medium">Shift in progress</span>
+                            <span className="text-emerald-600 font-medium">Shift active</span>
                           )}
                         </div>
                       </div>
 
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          isOD
-                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                          isAbsent
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300 font-bold'
+                            : isWeeklyOff
+                            ? 'bg-purple-100 text-purple-800 border border-purple-200 font-bold'
+                            : isGovtWorked
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 font-black'
+                            : isGovtLeave
+                            ? 'bg-blue-100 text-blue-900 border border-blue-300 font-bold'
+                            : isOD
+                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold'
+                            : isPendingCheckout
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
                             : isLate
                             ? 'bg-amber-100 text-amber-700 border border-amber-200'
                             : isHalfDay
@@ -394,7 +443,23 @@ export default function AdminDashboard({ setActiveTab }) {
                             : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                         }`}
                       >
-                        {isOD ? (rec.status === 'login_od' ? 'Login OD' : rec.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)') : isLate ? 'Late Arrival' : isHalfDay ? 'Half Day' : 'On-Time'}
+                        {isAbsent
+                          ? 'Absent'
+                          : isWeeklyOff
+                          ? 'Weekly Off'
+                          : isGovtWorked
+                          ? 'Govt Holiday (2× Pay)'
+                          : isGovtLeave
+                          ? 'Govt Holiday (Paid)'
+                          : isOD
+                          ? (rec.status === 'login_od' ? 'Login OD' : rec.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)')
+                          : isPendingCheckout
+                          ? 'In Progress'
+                          : isLate
+                          ? 'Late Arrival'
+                          : isHalfDay
+                          ? 'Half Day'
+                          : 'On-Time'}
                       </span>
                     </div>
                   </div>

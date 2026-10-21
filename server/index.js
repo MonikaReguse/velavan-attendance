@@ -1404,16 +1404,30 @@ app.get('/api/attendance/today-summary', (req, res) => {
 
     const totalStaff = db.prepare("SELECT COUNT(*) as count FROM employees WHERE status = 'active'").get().count;
 
-    const presentList = db.prepare(`
-      SELECT COUNT(*) as count FROM attendance WHERE date = ?
+    // Staff present: count rows for today that are NOT marked absent, weekly_off, or own_leave
+    const presentCount = db.prepare(`
+      SELECT COUNT(*) as count FROM attendance 
+      WHERE date = ? 
+        AND status != 'absent' 
+        AND status != 'weekly_off'
+        AND (holiday_type IS NULL OR holiday_type != 'own_leave')
+    `).get(today).count;
+
+    // Staff explicitly marked absent in attendance register
+    const explicitAbsent = db.prepare(`
+      SELECT COUNT(*) as count FROM attendance 
+      WHERE date = ? 
+        AND (status = 'absent' OR holiday_type = 'own_leave')
     `).get(today).count;
 
     const lateCount = db.prepare(`
-      SELECT COUNT(*) as count FROM attendance WHERE date = ? AND status = 'late'
+      SELECT COUNT(*) as count FROM attendance 
+      WHERE date = ? AND status = 'late'
     `).get(today).count;
 
     const halfDayCount = db.prepare(`
-      SELECT COUNT(*) as count FROM attendance WHERE date = ? AND status = 'half_day'
+      SELECT COUNT(*) as count FROM attendance 
+      WHERE date = ? AND status = 'half_day'
     `).get(today).count;
 
     const currentlyIn = db.prepare(`
@@ -1421,6 +1435,7 @@ app.get('/api/attendance/today-summary', (req, res) => {
       WHERE date = ? 
         AND (clock_out IS NULL OR clock_out = '' OR clock_out = '--')
         AND status != 'absent' AND status != 'weekly_off'
+        AND (holiday_type IS NULL OR holiday_type != 'own_leave')
     `).get(today).count;
 
     const onLeaveCount = db.prepare(`
@@ -1428,21 +1443,26 @@ app.get('/api/attendance/today-summary', (req, res) => {
       WHERE status = 'approved' AND start_date <= ? AND end_date >= ?
     `).get(today, today).count;
 
-    const absentCount = Math.max(0, totalStaff - presentList - onLeaveCount);
+    // Unaccounted staff = totalStaff - presentCount - explicitAbsent - onLeaveCount
+    const unaccountedStaff = Math.max(0, totalStaff - presentCount - explicitAbsent - onLeaveCount);
+    const totalAbsent = explicitAbsent + unaccountedStaff;
 
     const totalOTRow = db.prepare(`
-      SELECT SUM(ot_hours) as total_ot FROM attendance WHERE date = ?
+      SELECT SUM(ot_hours) as total_ot FROM attendance 
+      WHERE date = ? AND status != 'absent' AND (holiday_type IS NULL OR holiday_type != 'own_leave')
     `).get(today);
     const totalOT = totalOTRow?.total_ot || 0;
 
     res.json({
       total_employees: totalStaff,
-      present_today: presentList,
+      present_today: presentCount,
       late_today: lateCount,
       half_day_today: halfDayCount,
       currently_in_office: currentlyIn,
       on_leave_today: onLeaveCount,
-      absent_today: absentCount,
+      absent_today: totalAbsent,
+      explicit_absent_today: explicitAbsent,
+      unaccounted_today: unaccountedStaff,
       overtime_today: Number(totalOT.toFixed(2)),
       date: today
     });

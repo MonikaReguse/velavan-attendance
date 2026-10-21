@@ -147,14 +147,23 @@ export default function OfficeFaceLockKiosk() {
       const todayStr = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       const todayOnly = merged.filter(p => p.date === todayStr);
       setTodayPunches(todayOnly);
-      if (sum) {
-        setSummary(sum);
+      if (sum && typeof sum.present_today === 'number') {
+        setSummary({
+          total_employees: sum.total_employees || 9,
+          present: sum.present_today,
+          late: sum.late_today,
+          absent: sum.absent_today
+        });
       } else {
+        const presentList = todayOnly.filter(p => p.status !== 'absent' && p.status !== 'weekly_off' && p.holiday_type !== 'own_leave');
+        const explicitAbsent = todayOnly.filter(p => p.status === 'absent' || p.holiday_type === 'own_leave').length;
+        const totalEmp = 9;
+        const unaccounted = Math.max(0, totalEmp - presentList.length - explicitAbsent);
         setSummary(prev => ({
           ...prev,
-          present: todayOnly.length,
-          late: todayOnly.filter(p => p.is_late || p.status === 'late').length,
-          absent: Math.max(0, (prev.total_employees || 9) - todayOnly.length)
+          present: presentList.length,
+          late: presentList.filter(p => p.is_late || p.status === 'late').length,
+          absent: explicitAbsent + unaccounted
         }));
       }
     } catch (err) {
@@ -680,24 +689,30 @@ export default function OfficeFaceLockKiosk() {
                 </div>
               ) : (
                 todayPunches.map((item) => {
+                  const isAbsent = item.status === 'absent' || item.holiday_type === 'own_leave';
+                  const isWeeklyOff = item.status === 'weekly_off';
                   const isOD = item.status === 'od' || item.status === 'login_od' || item.status === 'logout_od' || item.clock_in === 'OD' || item.clock_out === 'OD';
-                  const isLate = !isOD && (item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00'));
+                  const isLate = !isOD && !isAbsent && (item.status === 'late' || (item.clock_in && item.clock_in > '09:40:00'));
                   const hasOt = item.ot_hours > 0;
 
                   return (
                     <div
                       key={item.id}
-                      className="p-2.5 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-between text-xs"
+                      className={`p-2.5 rounded-xl transition-colors flex items-center justify-between text-xs ${
+                        isAbsent ? 'bg-rose-50/50 hover:bg-rose-50/80 border border-rose-200' : 'hover:bg-slate-50'
+                      }`}
                     >
                       <div className="flex items-center space-x-3">
                         <img
                           src={resolvePhotoUrl(item.avatar || item.punch_photo, item.name)}
                           alt={item.name}
                           onError={(e) => handleImageError(e, item.name)}
-                          className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"
+                          className={`w-9 h-9 rounded-full object-cover border bg-slate-100 ${
+                            isAbsent ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200'
+                          }`}
                         />
                         <div>
-                          <div className="font-bold text-slate-800 leading-tight">
+                          <div className={`font-bold leading-tight ${isAbsent ? 'text-rose-900' : 'text-slate-800'}`}>
                             {item.name}
                           </div>
                           <div className="flex items-center space-x-1.5 mt-0.5">
@@ -710,16 +725,30 @@ export default function OfficeFaceLockKiosk() {
                       </div>
 
                       <div className="text-right space-y-0.5">
-                        <div className="font-mono font-bold text-slate-800 text-[11px]">
-                          IN: {item.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_in)}
-                          {item.clock_out && (
-                            <span className="text-blue-600 ml-1.5 font-bold">
-                              OUT: {item.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_out)}
+                        <div className="font-mono font-bold text-[11px]">
+                          {isAbsent ? (
+                            <span className="text-rose-600 font-bold">ABSENT</span>
+                          ) : (
+                            <span className="text-slate-800">
+                              IN: {item.clock_in === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_in)}
+                              {item.clock_out && item.clock_out !== '--' && (
+                                <span className="text-blue-600 ml-1.5 font-bold">
+                                  OUT: {item.clock_out === 'OD' ? <span className="text-indigo-700 font-bold">OD</span> : formatTime(item.clock_out)}
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>
                         <div>
-                          {isOD ? (
+                          {isAbsent ? (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                              Absent (Loss of Pay)
+                            </span>
+                          ) : isWeeklyOff ? (
+                            <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                              Weekly Off
+                            </span>
+                          ) : isOD ? (
                             <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
                               {item.status === 'login_od' ? 'Login OD' : item.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)'}
                             </span>
@@ -732,7 +761,7 @@ export default function OfficeFaceLockKiosk() {
                               On-Time
                             </span>
                           )}
-                          {hasOt && (
+                          {!isAbsent && hasOt && (
                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 ml-1">
                               +{item.ot_minutes ? item.ot_minutes : Math.round(item.ot_hours * 60)} mins OT
                             </span>
