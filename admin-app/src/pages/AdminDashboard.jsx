@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   UserCheck, 
-  Clock, 
-  CalendarOff, 
   UserX, 
   Building2, 
   ScanFace,
@@ -23,22 +21,23 @@ export default function AdminDashboard({ setActiveTab }) {
       const allLocal = getLocalAttendance();
       const todayList = allLocal.filter(a => a.date === currentDay);
       if (todayList.length > 0) {
-        const present = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
-        const absent = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
+        const uniqueEmpMap = new Map();
+        todayList.forEach(a => { if (a && a.emp_id) uniqueEmpMap.set(a.emp_id, a); });
+        const list = Array.from(uniqueEmpMap.values());
+        const present = list.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
+        const absent = list.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
         const total = 9;
-        const late = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
         const unaccounted = Math.max(0, total - present - absent);
         return {
           total_employees: total,
           present_today: present,
-          late_today: late,
           absent_today: absent + unaccounted,
           explicit_absent_today: absent,
           unaccounted_today: unaccounted
         };
       }
     } catch {}
-    return { total_employees: 9, present_today: 0, absent_today: 9, late_today: 0 };
+    return { total_employees: 9, present_today: 0, absent_today: 9, explicit_absent_today: 0, unaccounted_today: 9 };
   });
   const [todayAttendance, setTodayAttendance] = useState(() => {
     try {
@@ -70,7 +69,9 @@ export default function AdminDashboard({ setActiveTab }) {
         api.getTodayAttendance().catch(() => null),
         api.getEmployees().catch(() => null)
       ]);
+      let activeEmployees = employees;
       if (Array.isArray(empRes) && empRes.length > 0) {
+        activeEmployees = empRes;
         setEmployees(empRes);
       }
 
@@ -86,9 +87,30 @@ export default function AdminDashboard({ setActiveTab }) {
       if (Array.isArray(attRes) && attRes.length > 0) {
         mergeAttendanceWithLocal(attRes);
         const localList = getLocalAttendance().filter(a => a.date === currentDay);
+        const map = new Map();
+        // Server records first
+        attRes.forEach(s => {
+          if (s && s.emp_id) map.set(s.emp_id, s);
+        });
+        // Local records overlay
+        localList.forEach(l => {
+          if (l && l.emp_id) {
+            const existing = map.get(l.emp_id);
+            if (!existing) {
+              map.set(l.emp_id, l);
+            } else {
+              map.set(l.emp_id, {
+                ...existing,
+                ...l,
+                punch_photo: l.punch_photo || existing.punch_photo
+              });
+            }
+          }
+        });
+        todayList = Array.from(map.values());
+
         const serverKeys = new Set(attRes.map(a => a.emp_id));
         const unsavedLocal = localList.filter(l => !serverKeys.has(l.emp_id));
-        todayList = [...attRes, ...unsavedLocal];
         if (unsavedLocal.length > 0) {
           syncLocalRecordsToServer(unsavedLocal).catch(() => {});
         }
@@ -96,24 +118,40 @@ export default function AdminDashboard({ setActiveTab }) {
         const merged = mergeAttendanceWithLocal(Array.isArray(attRes) ? attRes : []);
         todayList = merged.filter(a => a.date === currentDay);
       }
-      setTodayAttendance(todayList);
 
-      const totalEmp = (empRes && empRes.length > 0) ? empRes.length : (employees.length || 9);
-      const presentFromList = todayList.filter(a => a.status !== 'absent' && a.status !== 'weekly_off' && a.holiday_type !== 'own_leave').length;
-      const explicitAbsentFromList = todayList.filter(a => a.status === 'absent' || a.holiday_type === 'own_leave').length;
-      const lateFromList = todayList.filter(a => (a.status === 'late' || a.is_late) && a.status !== 'absent').length;
+      // Deduplicate todayList by emp_id to guarantee each employee appears at most once in roster & count
+      const dedupedMap = new Map();
+      todayList.forEach(rec => {
+        if (rec && rec.emp_id) {
+          dedupedMap.set(rec.emp_id, rec);
+        }
+      });
+      const finalTodayList = Array.from(dedupedMap.values());
+      setTodayAttendance(finalTodayList);
 
-      // Authoritative count matches the visible roster on the dashboard
-      const presentToday = Math.max(presentFromList, Number(sumRes?.present_today || 0));
-      const explicitAbsent = Math.max(explicitAbsentFromList, Number(sumRes?.explicit_absent_today || 0));
-      const lateToday = Math.max(lateFromList, Number(sumRes?.late_today || 0));
+      const totalEmp = (activeEmployees && activeEmployees.length > 0) ? activeEmployees.length : (employees.length || 9);
+
+      // Present: Any employee who punched in via FaceLock, PIN, manual attendance, or is in-progress (checkout pending),
+      // or half_day, or govt holiday, or OD. Must NOT be absent, weekly_off, or own_leave.
+      const presentToday = finalTodayList.filter(a => 
+        a.status !== 'absent' && 
+        a.status !== 'weekly_off' && 
+        a.holiday_type !== 'own_leave'
+      ).length;
+
+      // Explicit Absent: Staff explicitly marked absent in manual attendance or own unpaid leave
+      const explicitAbsent = finalTodayList.filter(a => 
+        a.status === 'absent' || 
+        a.holiday_type === 'own_leave'
+      ).length;
+
+      // Unaccounted: Active employees who haven't logged in yet today
       const unaccounted = Math.max(0, totalEmp - presentToday - explicitAbsent);
       const absentToday = explicitAbsent + unaccounted;
 
       const calculatedSummary = {
         total_employees: totalEmp,
         present_today: presentToday,
-        late_today: lateToday,
         absent_today: absentToday,
         explicit_absent_today: explicitAbsent,
         unaccounted_today: unaccounted
@@ -199,9 +237,6 @@ export default function AdminDashboard({ setActiveTab }) {
               <span className="inline-flex items-center space-x-1 bg-white/15 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-white border border-white/20">
                 <span>Shift: 09:30 AM – 06:00 PM</span>
               </span>
-              <span className="inline-flex items-center space-x-1 bg-amber-400/20 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-amber-200 border border-amber-300/30">
-                <span>Late After: 09:40 AM</span>
-              </span>
               <span className="inline-flex items-center space-x-1 bg-emerald-400/20 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-emerald-200 border border-emerald-300/30">
                 <span>OT Buffer: 20 mins</span>
               </span>
@@ -255,7 +290,7 @@ export default function AdminDashboard({ setActiveTab }) {
       )}
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* 1. Total Staff */}
         <div 
           onClick={() => setActiveTab('employees')}
@@ -297,20 +332,10 @@ export default function AdminDashboard({ setActiveTab }) {
           </div>
           <div className="text-3xl font-black text-rose-600">{summary?.absent_today || 0}</div>
           <span className="text-[11px] text-rose-600 font-semibold">
-            {summary?.explicit_absent_today > 0 ? `${summary.explicit_absent_today} marked absent` : 'Unaccounted staff'}
+            {summary?.explicit_absent_today > 0 
+              ? `${summary.explicit_absent_today} marked absent${summary?.unaccounted_today > 0 ? `, ${summary.unaccounted_today} pending` : ''}`
+              : (summary?.absent_today > 0 ? `${summary.absent_today} not checked in` : 'All staff accounted for')}
           </span>
-        </div>
-
-        {/* 4. Late Arrivals */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-amber-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Late Arrivals</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <Clock className="w-4 h-4 text-amber-600" />
-            </div>
-          </div>
-          <div className="text-3xl font-black text-amber-600">{summary?.late_today || 0}</div>
-          <span className="text-[11px] text-amber-600 font-semibold">Checked in after 09:40 AM</span>
         </div>
       </div>
 
@@ -350,7 +375,6 @@ export default function AdminDashboard({ setActiveTab }) {
                 const isGovtWorked = rec.holiday_type === 'govt_holiday_worked';
                 const isGovtLeave = rec.holiday_type === 'govt_holiday_leave' || rec.status === 'holiday';
                 const isOD = rec.status === 'od' || rec.status === 'login_od' || rec.status === 'logout_od' || rec.clock_in === 'OD' || rec.clock_out === 'OD';
-                const isLate = !isOD && !isAbsent && (rec.status === 'late' || rec.is_late);
                 const isHalfDay = !isOD && !isAbsent && rec.status === 'half_day';
                 const isPendingCheckout = (!rec.clock_out || rec.clock_out === '--' || rec.status === 'checked_in') && !isAbsent && !isWeeklyOff && !isGovtLeave;
                 const isOngoing = isPendingCheckout || (!rec.clock_out || rec.clock_out === rec.clock_in);
@@ -454,8 +478,6 @@ export default function AdminDashboard({ setActiveTab }) {
                             ? 'bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold'
                             : isPendingCheckout
                             ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
-                            : isLate
-                            ? 'bg-amber-100 text-amber-700 border border-amber-200'
                             : isHalfDay
                             ? 'bg-blue-100 text-blue-700 border border-blue-200'
                             : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
@@ -473,8 +495,6 @@ export default function AdminDashboard({ setActiveTab }) {
                           ? (rec.status === 'login_od' ? 'Login OD' : rec.status === 'logout_od' ? 'Logout OD' : 'On Duty (OD)')
                           : isPendingCheckout
                           ? 'In Progress'
-                          : isLate
-                          ? 'Late Arrival'
                           : isHalfDay
                           ? 'Half Day'
                           : 'On-Time'}
