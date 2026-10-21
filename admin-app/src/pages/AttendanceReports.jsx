@@ -266,9 +266,9 @@ export default function AttendanceReports() {
   const payrollStats = useMemo(() => {
     return employees.map(emp => {
       const records = data.filter(r => r.emp_id === emp.emp_id);
-      return calculateEmployeeMonthlySalary(emp, records, filters);
+      return calculateEmployeeMonthlySalary(emp, records, calendarInfo);
     });
-  }, [employees, data, filters]);
+  }, [employees, data, calendarInfo]);
 
   // Aggregate Payroll Totals
   const totalPayroll = payrollStats.reduce((sum, p) => sum + p.finalPayableSalary, 0);

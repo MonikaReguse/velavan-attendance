@@ -2,18 +2,62 @@
  * Unified Official Salary & Attendance Calculation Service
  * Reused across Admin Dashboard, Attendance Reports, Excel Export, PDF Export,
  * Manual Attendance Form, and Employee Portal.
+ * 
+ * Supports both function signatures:
+ * 1) Positional: calculateEmployeeMonthlySalary(employee, attendanceRecords, calendarInfo, settings)
+ * 2) Object:     calculateEmployeeMonthlySalary({ employee, attendanceRecords, calendarInfo, settings })
  */
 
-export const calculateEmployeeMonthlySalary = ({
-  employee = {},
-  attendanceRecords = [],
-  calendarInfo = { daysInMonth: 30, sundaysCount: 4, workingDays: 26 },
-  settings = {}
-}) => {
-  const baseSalary = Number(employee.salary || 0);
-  const scheduledWorkingDays = Number(calendarInfo.workingDays || 26);
-  const sundaysCount = Number(calendarInfo.sundaysCount || 4);
-  const daysInMonth = Number(calendarInfo.daysInMonth || 30);
+export const calculateEmployeeMonthlySalary = (arg1 = {}, arg2 = [], arg3 = {}, arg4 = {}) => {
+  let employee = {};
+  let attendanceRecords = [];
+  let calendarInfo = {};
+  let settings = {};
+
+  if (arg1 && typeof arg1 === 'object' && ('employee' in arg1 || 'attendanceRecords' in arg1)) {
+    employee = arg1.employee || {};
+    attendanceRecords = arg1.attendanceRecords || [];
+    calendarInfo = arg1.calendarInfo || arg1.filters || {};
+    settings = arg1.settings || {};
+  } else {
+    employee = arg1 || {};
+    attendanceRecords = Array.isArray(arg2) ? arg2 : [];
+    calendarInfo = arg3 || {};
+    settings = arg4 || {};
+  }
+
+  // Parse basic salary cleanly (handling string or numbers like "₹20,000")
+  let rawSalary = employee.salary;
+  if (typeof rawSalary === 'string') {
+    rawSalary = parseFloat(rawSalary.replace(/[^0-9.]/g, ''));
+  }
+  const baseSalary = Number(rawSalary || 0);
+
+  // Compute month metrics (working days, Sundays, total days) if not pre-computed
+  let daysInMonth = Number(calendarInfo.daysInMonth || 0);
+  let sundaysCount = Number(calendarInfo.sundaysCount || 0);
+  let scheduledWorkingDays = Number(calendarInfo.workingDays || 0);
+
+  if (!daysInMonth || !scheduledWorkingDays) {
+    const monthStr = calendarInfo.selectedMonth || (calendarInfo.startDate ? calendarInfo.startDate.slice(0, 7) : '');
+    let year = new Date().getFullYear();
+    let monthIdx = new Date().getMonth();
+    if (monthStr) {
+      try {
+        const [y, m] = monthStr.split('-').map(Number);
+        year = y;
+        monthIdx = m - 1;
+      } catch {}
+    }
+    const totalDays = new Date(year, monthIdx + 1, 0).getDate();
+    let sundays = 0;
+    for (let day = 1; day <= totalDays; day++) {
+      if (new Date(year, monthIdx, day).getDay() === 0) sundays++;
+    }
+    daysInMonth = totalDays;
+    sundaysCount = sundays;
+    scheduledWorkingDays = totalDays - sundays;
+  }
 
   // Daily rate on standard 30-day payroll basis
   const payrollBasisDays = Number(settings.payroll_basis_days || 30);
@@ -139,8 +183,8 @@ export const calculateEmployeeMonthlySalary = ({
   const finalPayableSalary = Math.max(0, normalSalary + doubleSalaryExtraAmount + otAmount + otherAllowances);
 
   return {
-    emp_id: employee.emp_id,
-    name: employee.name,
+    emp_id: employee.emp_id || '',
+    name: employee.name || employee.emp_id || 'Staff',
     department: employee.department || 'Digital Marketing',
     role: employee.role || employee.designation || 'Staff',
     avatar: employee.avatar,
