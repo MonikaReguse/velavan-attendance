@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AlertCircle } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import AdminDashboard from './pages/AdminDashboard';
@@ -39,6 +40,7 @@ export default function App() {
     }
   });
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [cloudSuspended, setCloudSuspended] = useState(false);
 
   const [activeTab, setActiveTabState] = useState(() => {
     try {
@@ -122,9 +124,22 @@ export default function App() {
 
   useEffect(() => {
     // Keep-Alive Warmup Ping: Prevents Render free tier from spinning down while app is active
-    api.getHealth().catch(() => {});
+    api.getHealth()
+      .then(() => setCloudSuspended(false))
+      .catch((err) => {
+        if (err?.message && (err.message.includes('503') || err.message.includes('suspended') || err.message.includes('Failed to fetch'))) {
+          setCloudSuspended(true);
+        }
+      });
+
     const warmPingInterval = setInterval(() => {
-      api.getHealth().catch(() => {});
+      api.getHealth()
+        .then(() => setCloudSuspended(false))
+        .catch((err) => {
+          if (err?.message && (err.message.includes('503') || err.message.includes('suspended') || err.message.includes('Failed to fetch'))) {
+            setCloudSuspended(true);
+          }
+        });
     }, 3 * 60 * 1000);
 
     api.getSettings().then(s => {
@@ -338,6 +353,26 @@ export default function App() {
           onLogout={handleLogout}
           onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
         />
+
+        {/* Cloud Service Suspended Notice */}
+        {cloudSuspended && (
+          <div className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex items-center justify-between border-b border-amber-600 shadow-sm shrink-0">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-amber-950 shrink-0" />
+              <span>
+                <strong>Render Cloud Database Suspended:</strong> The cloud backend on Render is currently suspended by account owner. Local offline data is active. Management panel unlocks with password (<code>admin123</code>). To restore cloud sync, open Render Dashboard and click <strong>Resume Service</strong>.
+              </span>
+            </div>
+            <a
+              href="https://dashboard.render.com"
+              target="_blank"
+              rel="noreferrer"
+              className="ml-3 px-3 py-1 bg-amber-950 text-white rounded-lg text-[11px] font-bold hover:bg-black transition-colors shrink-0"
+            >
+              Resume on Render &rarr;
+            </a>
+          </div>
+        )}
 
         {/* Scrollable Page Container */}
         <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 md:p-8">
