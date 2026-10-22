@@ -44,6 +44,7 @@ import { safeSetItem } from '../services/attendanceStorage';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { downloadFile } from '../services/downloadUtils';
 import { OFFICIAL_STAFF_FALLBACKS, enrichWithOfficialFallbacks } from '../services/officialStaffProfiles';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 const REQUIRED_DOCS = [
   { key: 'doc_aadhaar', label: 'Aadhaar Card', desc: 'Govt UIDAI identity card copy' },
@@ -77,7 +78,7 @@ export default function EmployeeDirectory({ setActiveTab }) {
         }
       }
     } catch (e) {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('table'); // 'table' (Employee List Table) or 'grid' (Card View)

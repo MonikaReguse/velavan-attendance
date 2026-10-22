@@ -14,6 +14,17 @@ import FaceEnrollment from './pages/FaceEnrollment';
 import AdminUnlockModal from './components/AdminUnlockModal';
 import { api } from './services/api';
 import { getLocalAttendance, mergeAttendanceWithLocal, getDeletedPunchKeys } from './services/attendanceStorage';
+import { BUNDLED_PRODUCTION_BACKUP } from './services/bundledProductionBackup';
+
+// Ensure browser always has complete production employee directory & attendance history
+try {
+  const currentBackup = localStorage.getItem('velavan_master_database_backup');
+  if (!currentBackup || (JSON.parse(currentBackup)?.employees?.length || 0) === 0) {
+    localStorage.setItem('velavan_master_database_backup', JSON.stringify(BUNDLED_PRODUCTION_BACKUP));
+    localStorage.setItem('velavan_employee_directory_list', JSON.stringify(BUNDLED_PRODUCTION_BACKUP.employees));
+    localStorage.setItem('velavan_attendance_logs_cache', JSON.stringify(BUNDLED_PRODUCTION_BACKUP.attendance));
+  }
+} catch (e) {}
 
 export default function App() {
   const [adminUser, setAdminUser] = useState(() => {
