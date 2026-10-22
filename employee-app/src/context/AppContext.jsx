@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { OFFICIAL_STAFF_FALLBACKS } from '../services/officialStaffProfiles';
 
 const AppContext = createContext();
 
@@ -7,10 +8,14 @@ export function AppProvider({ children }) {
   const [employees, setEmployees] = useState(() => {
     try {
       const saved = localStorage.getItem('workpulse_employee_list');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
     } catch {
-      return [];
+      return Object.values(OFFICIAL_STAFF_FALLBACKS);
     }
+    return Object.values(OFFICIAL_STAFF_FALLBACKS);
   });
   const [activeEmployee, setActiveEmployee] = useState(() => {
     const saved = localStorage.getItem('workpulse_authenticated_employee');
@@ -53,12 +58,23 @@ export function AppProvider({ children }) {
         api.getSettings().catch(() => ({}))
       ]);
 
-      if (Array.isArray(empList) && empList.length > 0) {
-        setEmployees(empList);
+      let effectiveEmployees = (Array.isArray(empList) && empList.length > 0) ? empList : [];
+      if (effectiveEmployees.length === 0) {
         try {
-          localStorage.setItem('workpulse_employee_list', JSON.stringify(empList));
+          const saved = localStorage.getItem('workpulse_employee_list');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) effectiveEmployees = parsed;
+          }
         } catch (e) {}
       }
+      if (effectiveEmployees.length === 0) {
+        effectiveEmployees = Object.values(OFFICIAL_STAFF_FALLBACKS);
+      }
+      setEmployees(effectiveEmployees);
+      try {
+        localStorage.setItem('workpulse_employee_list', JSON.stringify(effectiveEmployees));
+      } catch (e) {}
       if (Array.isArray(todayList)) {
         setTodayAttendance(todayList);
       }

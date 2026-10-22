@@ -31,6 +31,7 @@ import {
 import { api } from '../services/api';
 import { formatTime, getCurrentTime24, getTodayDateIST } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 export default function ManualAttendanceUpdate() {
   const [employees, setEmployees] = useState(() => {
@@ -43,7 +44,7 @@ export default function ManualAttendanceUpdate() {
       const e = localStorage.getItem('velavan_employee_directory_list');
       if (e) return JSON.parse(e);
     } catch {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [recentLogs, setRecentLogs] = useState(() => {
     return getLocalAttendance();
@@ -149,12 +150,39 @@ export default function ManualAttendanceUpdate() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [empList, historyList] = await Promise.all([
-        api.getEmployees(),
-        api.getAttendanceHistory()
-      ]);
-      const cleanEmpList = empList || [];
+      let empList = [];
+      let historyList = [];
+      try {
+        [empList, historyList] = await Promise.all([
+          api.getEmployees(),
+          api.getAttendanceHistory()
+        ]);
+      } catch (e) {
+        console.warn('[ManualUpdate] Cloud backend offline or suspended:', e);
+      }
+
+      let cleanEmpList = Array.isArray(empList) && empList.length > 0 ? empList : [];
+      if (cleanEmpList.length === 0) {
+        try {
+          const b = localStorage.getItem('velavan_master_database_backup');
+          if (b) {
+            const p = JSON.parse(b);
+            if (Array.isArray(p?.employees) && p.employees.length > 0) cleanEmpList = p.employees;
+          }
+          if (cleanEmpList.length === 0) {
+            const e = localStorage.getItem('velavan_employee_directory_list');
+            if (e) {
+              const p = JSON.parse(e);
+              if (Array.isArray(p) && p.length > 0) cleanEmpList = p;
+            }
+          }
+        } catch (err) {}
+      }
+      if (cleanEmpList.length === 0 && Array.isArray(BUNDLED_PRODUCTION_BACKUP?.employees)) {
+        cleanEmpList = BUNDLED_PRODUCTION_BACKUP.employees;
+      }
       setEmployees(cleanEmpList);
+
       const cleanHistory = mergeAttendanceWithLocal(historyList || []);
       setRecentLogs(prev => {
         const map = new Map(cleanHistory.map(h => [`${h.emp_id}_${h.date}`, h]));
@@ -178,7 +206,6 @@ export default function ManualAttendanceUpdate() {
       }
     } catch (err) {
       console.error(err);
-      setFeedback({ type: 'error', message: 'Failed to load initial data: ' + err.message });
       setRecentLogs(getLocalAttendance());
     } finally {
       setLoading(false);

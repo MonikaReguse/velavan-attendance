@@ -15,6 +15,7 @@ import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { loadFaceModels, getFaceDescriptor, faceapi } from '../services/faceService';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 export default function FaceEnrollment() {
   const [employees, setEmployees] = useState(() => {
@@ -27,7 +28,7 @@ export default function FaceEnrollment() {
       const e = localStorage.getItem('velavan_employee_directory_list');
       if (e) return JSON.parse(e);
     } catch {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -54,9 +55,37 @@ export default function FaceEnrollment() {
   }, []);
 
   const loadEmployees = async () => {
+    let data = [];
     try {
-      const data = await api.getEmployees();
-      setEmployees(data);
+      const res = await api.getEmployees();
+      if (Array.isArray(res) && res.length > 0) {
+        data = res;
+      }
+    } catch (err) {
+      console.warn('Could not fetch employees from server:', err);
+    }
+
+    if (data.length === 0) {
+      try {
+        const b = localStorage.getItem('velavan_master_database_backup');
+        if (b) {
+          const p = JSON.parse(b);
+          if (Array.isArray(p?.employees) && p.employees.length > 0) data = p.employees;
+        }
+        if (data.length === 0) {
+          const e = localStorage.getItem('velavan_employee_directory_list');
+          if (e) {
+            const p = JSON.parse(e);
+            if (Array.isArray(p) && p.length > 0) data = p;
+          }
+        }
+      } catch (e) {}
+    }
+    if (data.length === 0 && Array.isArray(BUNDLED_PRODUCTION_BACKUP?.employees)) {
+      data = BUNDLED_PRODUCTION_BACKUP.employees;
+    }
+
+    setEmployees(data);
 
       // Support preselecting employee clicked from Employee Directory
       const preselect = sessionStorage.getItem('enroll_emp_id');
@@ -76,9 +105,6 @@ export default function FaceEnrollment() {
         const updated = data.find(e => e.id === selectedEmployee.id);
         if (updated) setSelectedEmployee(updated);
       }
-    } catch (err) {
-      console.error('Failed to load employees:', err);
-    }
   };
 
   const initModels = async () => {

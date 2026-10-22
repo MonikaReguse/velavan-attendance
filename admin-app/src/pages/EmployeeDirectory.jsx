@@ -175,6 +175,13 @@ export default function EmployeeDirectory({ setActiveTab }) {
             }
           } catch (e) {}
         }
+        if (Array.isArray(BUNDLED_PRODUCTION_BACKUP?.employees) && BUNDLED_PRODUCTION_BACKUP.employees.length > 0) {
+          setEmployees(BUNDLED_PRODUCTION_BACKUP.employees);
+          try {
+            localStorage.setItem('velavan_employee_directory_list', JSON.stringify(BUNDLED_PRODUCTION_BACKUP.employees));
+          } catch (e) {}
+          return;
+        }
         return;
       }
 

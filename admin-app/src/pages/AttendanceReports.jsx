@@ -25,6 +25,7 @@ import { exportAttendancePDF, exportPayrollPDF, exportSingleEmployeeSalarySlipPD
 import { exportMonthlyPayrollExcel, exportMonthlyPayrollCSV, getMonthCalendarInfo } from '../services/excelExport';
 import { calculateEmployeeMonthlySalary } from '../services/salaryCalculator';
 import { isLateArrival, getLateMinutes } from '../services/timeUtils';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 export default function AttendanceReports() {
   const [data, setData] = useState(() => getLocalAttendance());
@@ -38,7 +39,7 @@ export default function AttendanceReports() {
       const e = localStorage.getItem('velavan_employee_directory_list');
       if (e) return JSON.parse(e);
     } catch {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [loading, setLoading] = useState(false);
   
@@ -102,11 +103,37 @@ export default function AttendanceReports() {
   const loadReport = async (f) => {
     try {
       setLoading(true);
-      const [resHistory, resEmployees] = await Promise.all([
-        api.getAttendanceHistory(f),
-        api.getEmployees()
-      ]);
-      const validEmps = Array.isArray(resEmployees) ? resEmployees : [];
+      let resHistory = [];
+      let resEmployees = [];
+      try {
+        [resHistory, resEmployees] = await Promise.all([
+          api.getAttendanceHistory(f),
+          api.getEmployees()
+        ]);
+      } catch (e) {
+        console.warn('[Reports] Cloud backend unavailable, loading cached/bundled dataset:', e);
+      }
+
+      let validEmps = Array.isArray(resEmployees) && resEmployees.length > 0 ? resEmployees : [];
+      if (validEmps.length === 0) {
+        try {
+          const b = localStorage.getItem('velavan_master_database_backup');
+          if (b) {
+            const p = JSON.parse(b);
+            if (Array.isArray(p?.employees) && p.employees.length > 0) validEmps = p.employees;
+          }
+          if (validEmps.length === 0) {
+            const e = localStorage.getItem('velavan_employee_directory_list');
+            if (e) {
+              const p = JSON.parse(e);
+              if (Array.isArray(p) && p.length > 0) validEmps = p;
+            }
+          }
+        } catch (err) {}
+      }
+      if (validEmps.length === 0 && Array.isArray(BUNDLED_PRODUCTION_BACKUP?.employees)) {
+        validEmps = BUNDLED_PRODUCTION_BACKUP.employees;
+      }
       setEmployees(validEmps);
 
       const empMap = new Map(validEmps.map(e => [e.emp_id, e]));

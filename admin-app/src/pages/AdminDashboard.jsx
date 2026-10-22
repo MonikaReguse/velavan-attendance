@@ -13,6 +13,7 @@ import { api } from '../services/api';
 import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, syncLocalRecordsToServer } from '../services/attendanceStorage';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 export default function AdminDashboard({ setActiveTab }) {
   const [summary, setSummary] = useState(() => {
@@ -58,7 +59,7 @@ export default function AdminDashboard({ setActiveTab }) {
       const e = localStorage.getItem('velavan_employee_directory_list');
       if (e) return JSON.parse(e);
     } catch {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [loading, setLoading] = useState(false);
 
@@ -73,6 +74,9 @@ export default function AdminDashboard({ setActiveTab }) {
       if (Array.isArray(empRes) && empRes.length > 0) {
         activeEmployees = empRes;
         setEmployees(empRes);
+      } else if (!activeEmployees || activeEmployees.length === 0) {
+        activeEmployees = BUNDLED_PRODUCTION_BACKUP.employees || [];
+        setEmployees(activeEmployees);
       }
 
       const currentDay = new Intl.DateTimeFormat('en-CA', { 

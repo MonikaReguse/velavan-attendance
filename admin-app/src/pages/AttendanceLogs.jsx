@@ -18,6 +18,7 @@ import { resolvePhotoUrl, handleImageError } from '../services/imageUtils';
 import { formatTime, isLateArrival, getLateMinutes } from '../services/timeUtils';
 import { getLocalAttendance, mergeAttendanceWithLocal, savePunchLocally, removePunchLocally } from '../services/attendanceStorage';
 import { exportAttendancePDF } from '../services/pdfExport';
+import { BUNDLED_PRODUCTION_BACKUP } from '../services/bundledProductionBackup';
 
 export default function AttendanceLogs() {
   const [logs, setLogs] = useState(() => getLocalAttendance());
@@ -31,7 +32,7 @@ export default function AttendanceLogs() {
       const e = localStorage.getItem('velavan_employee_directory_list');
       if (e) return JSON.parse(e);
     } catch {}
-    return [];
+    return BUNDLED_PRODUCTION_BACKUP.employees || [];
   });
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -94,9 +95,32 @@ export default function AttendanceLogs() {
         if (!formData.emp_id) {
           setFormData(prev => ({ ...prev, emp_id: data[0].emp_id }));
         }
+        return;
       }
     } catch (err) {
-      console.error(err);
+      console.warn('Could not fetch employees from server:', err);
+    }
+    // Fallback to local storage or bundled backup
+    try {
+      const b = localStorage.getItem('velavan_master_database_backup');
+      if (b) {
+        const p = JSON.parse(b);
+        if (Array.isArray(p?.employees) && p.employees.length > 0) {
+          setEmployees(p.employees);
+          return;
+        }
+      }
+      const e = localStorage.getItem('velavan_employee_directory_list');
+      if (e) {
+        const p = JSON.parse(e);
+        if (Array.isArray(p) && p.length > 0) {
+          setEmployees(p);
+          return;
+        }
+      }
+    } catch (e) {}
+    if (Array.isArray(BUNDLED_PRODUCTION_BACKUP?.employees) && BUNDLED_PRODUCTION_BACKUP.employees.length > 0) {
+      setEmployees(BUNDLED_PRODUCTION_BACKUP.employees);
     }
   };
 
