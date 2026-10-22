@@ -29,3 +29,11 @@ yarn-error.log*
 # SQLite temp files
 *.db-shm
 *.db-wal
+
+# Android Build Outputs
+*.apk
+.gradle/
+*/android/.gradle/
+*/android/app/build/
+*/android/build/
+*/android/local.properties
